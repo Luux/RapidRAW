@@ -118,6 +118,9 @@
       "whiteBalance": "ホワイトバランス"
     },
     "curves": {
+      "adaptiveContrast": "カーブポイントを置く",
+      "adaptiveContrastTooltip": "中間調のアンカーを画像の中央値に置きます。スライダーの量はそのまま、暗いトーンと明るいトーンの幅も通常のままです",
+      "anchorMedian": "中央値に固定",
       "channelTitle": "{{channel}} チャンネル",
       "channels": {
         "blue": "ブルー",
@@ -128,6 +131,7 @@
       "copyParametric": "{{channel}} パラメトリックカーブをコピー",
       "copyPoint": "{{channel}} ポイントカーブをコピー",
       "curveDataUnavailable": "カーブデータがありません。",
+      "median": "中央値 {{value}}",
       "parametricCurve": "パラメトリックカーブ",
       "params": {
         "blackLevel": "黒レベル",
@@ -1701,7 +1705,6 @@
       "selectManufacturer": "メーカーを選択",
       "title": "レンズ補正",
       "vignetting": "周辺光量",
-      "waitingAutoDetect": "自動検出を待機中...",
       "zoomInTooltip": "拡大",
       "zoomOutTooltip": "縮小"
     },
@@ -1925,6 +1928,11 @@
       "title": "全般設定",
       "toolFocusMode": "ツールフォーカスモード",
       "toolFocusModeDesc": "ツールを展開すると、同じパネル内の他のツールを自動的に折りたたみます。",
+      "uiScale": "インターフェースの拡大縮小",
+      "uiScaleCompact": "コンパクト",
+      "uiScaleDefault": "デフォルト",
+      "uiScaleDesc": "システムの表示スケーリングとは別に、インターフェースを小さく、または大きくします。コンパクトなサイズは小型ノートPCの画面に適しています。",
+      "uiScaleLarge": "大",
       "xmpSync": "XMPメタデータ同期",
       "xmpSyncDesc": "他の写真編集ソフトとの互換性のために、評価、カラーラベル、タグを標準のXMPサイドカーファイルと同期します。"
     },

@@ -302,6 +302,9 @@ export interface Adjustments {
   colorGrading: ColorGradingProps;
   colorNoiseReduction: number;
   contrast: number;
+  contrastAdaptive?: boolean;
+  contrastPivot?: number;
+  maskLocalTone?: boolean;
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
@@ -363,17 +366,6 @@ export interface Adjustments {
   lensDistortionEnabled: boolean;
   lensTcaEnabled: boolean;
   lensVignetteEnabled: boolean;
-  lensDistortionParams: {
-    k1: number;
-    k2: number;
-    k3: number;
-    model: number;
-    tca_vr: number;
-    tca_vb: number;
-    vig_k1: number;
-    vig_k2: number;
-    vig_k3: number;
-  } | null;
   lensMaker: string | null;
   lensModel: string | null;
   lumaNoiseReduction: number;
@@ -522,6 +514,9 @@ export interface MaskAdjustments {
   colorGrading: ColorGradingProps;
   colorNoiseReduction: number;
   contrast: number;
+  contrastAdaptive?: boolean;
+  contrastPivot?: number;
+  maskLocalTone?: boolean;
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
@@ -640,6 +635,9 @@ export const INITIAL_MASK_ADJUSTMENTS: MaskAdjustments = {
   colorGrading: { ...INITIAL_COLOR_GRADING },
   colorNoiseReduction: 0,
   contrast: 0,
+  contrastAdaptive: false,
+  maskLocalTone: false,
+  contrastPivot: 128,
   curves: getDefaultCurves(),
   pointCurves: getDefaultCurves(),
   parametricCurve: getDefaultParametricCurve(),
@@ -861,7 +859,6 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments): any 
     lensDistortionEnabled: loadedAdjustments.lensDistortionEnabled ?? INITIAL_ADJUSTMENTS.lensDistortionEnabled,
     lensTcaEnabled: loadedAdjustments.lensTcaEnabled ?? INITIAL_ADJUSTMENTS.lensTcaEnabled,
     lensVignetteEnabled: loadedAdjustments.lensVignetteEnabled ?? INITIAL_ADJUSTMENTS.lensVignetteEnabled,
-    lensDistortionParams: loadedAdjustments.lensDistortionParams ?? INITIAL_ADJUSTMENTS.lensDistortionParams,
     transformDistortion: loadedAdjustments.transformDistortion ?? INITIAL_ADJUSTMENTS.transformDistortion,
     transformVertical: loadedAdjustments.transformVertical ?? INITIAL_ADJUSTMENTS.transformVertical,
     transformHorizontal: loadedAdjustments.transformHorizontal ?? INITIAL_ADJUSTMENTS.transformHorizontal,
@@ -907,7 +904,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   basic: [
     { label: 'adjustments.basic.toneMapper', keys: ['toneMapper'] },
     { label: 'adjustments.basic.exposure', keys: [BasicAdjustment.Exposure] },
-    { label: 'adjustments.basic.contrast', keys: [BasicAdjustment.Contrast] },
+    {
+      label: 'adjustments.basic.contrast',
+      keys: [BasicAdjustment.Contrast, 'contrastAdaptive', 'contrastPivot', 'maskLocalTone'],
+    },
     { label: 'adjustments.basic.highlights', keys: [BasicAdjustment.Highlights] },
     { label: 'adjustments.basic.shadows', keys: [BasicAdjustment.Shadows] },
     { label: 'adjustments.basic.whites', keys: [BasicAdjustment.Whites] },
@@ -1332,10 +1332,10 @@ export const ADJUSTMENT_SECTION_TOOLS: Record<string, Array<AdjustmentSectionToo
   ],
   effects: [
     { id: 'creative', label: 'adjustments.effects.creative' },
-    { id: 'motionBlur', label: 'adjustments.effects.motionBlur' },
     { id: 'spatial', label: 'adjustments.effects.spatial', subTools: ['lensBlur', 'relight', 'fog'] },
     { id: 'lut', label: 'adjustments.effects.lut' },
     { id: 'vignette', label: 'adjustments.effects.vignette' },
+    { id: 'motionBlur', label: 'adjustments.effects.motionBlur' },
     { id: 'grain', label: 'adjustments.effects.grain' },
   ],
 };

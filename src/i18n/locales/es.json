@@ -118,6 +118,9 @@
       "whiteBalance": "Balance de blancos"
     },
     "curves": {
+      "adaptiveContrast": "Colocar puntos",
+      "adaptiveContrastTooltip": "Coloca el ancla de medios tonos en la mediana de la imagen. Los valores de los controles se mantienen, y los rangos de tonos oscuros y claros conservan su anchura habitual",
+      "anchorMedian": "Anclar en la mediana",
       "channelTitle": "Canal {{channel}}",
       "channels": {
         "blue": "Azul",
@@ -128,6 +131,7 @@
       "copyParametric": "Copiar curva paramétrica de {{channel}}",
       "copyPoint": "Copiar curva de puntos de {{channel}}",
       "curveDataUnavailable": "Datos de curva no disponibles.",
+      "median": "Mediana {{value}}",
       "parametricCurve": "Curva paramétrica",
       "params": {
         "blackLevel": "Nivel de negro",
@@ -1743,7 +1747,6 @@
       "selectManufacturer": "Seleccionar fabricante",
       "title": "Corrección de lente",
       "vignetting": "Viñeteo",
-      "waitingAutoDetect": "Esperando autodetección...",
       "zoomInTooltip": "Acercar",
       "zoomOutTooltip": "Alejar"
     },
@@ -1972,6 +1975,11 @@
       "title": "Ajustes generales",
       "toolFocusMode": "Modo de enfoque de herramientas",
       "toolFocusModeDesc": "Contrae automáticamente las demás herramientas de un panel cuando expandes una.",
+      "uiScale": "Escala de la interfaz",
+      "uiScaleCompact": "Compacta",
+      "uiScaleDefault": "Predeterminada",
+      "uiScaleDesc": "Haz la interfaz más pequeña o más grande, independientemente del escalado de pantalla del sistema. Los tamaños compactos aprovechan mejor las pantallas pequeñas de portátil.",
+      "uiScaleLarge": "Grande",
       "xmpSync": "Sincronización de metadatos XMP",
       "xmpSyncDesc": "Sincroniza puntuaciones, etiquetas de color y etiquetas a archivos sidecar XMP estándar para compatibilidad con otros editores de fotos."
     },

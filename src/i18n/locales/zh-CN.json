@@ -118,6 +118,9 @@
       "whiteBalance": "白平衡"
     },
     "curves": {
+      "adaptiveContrast": "放置曲线点",
+      "adaptiveContrastTooltip": "将中间调锚点放在图像的中位数上。滑块数值保持不变，暗部和亮部范围保持原有宽度",
+      "anchorMedian": "锚定到中位数",
       "channelTitle": "{{channel}} 通道",
       "channels": {
         "blue": "蓝色",
@@ -128,6 +131,7 @@
       "copyParametric": "复制 {{channel}} 参数曲线",
       "copyPoint": "复制 {{channel}} 点曲线",
       "curveDataUnavailable": "曲线数据不可用。",
+      "median": "中位数 {{value}}",
       "parametricCurve": "参数曲线",
       "params": {
         "blackLevel": "黑色色阶",
@@ -1701,7 +1705,6 @@
       "selectManufacturer": "选择制造商",
       "title": "镜头校正",
       "vignetting": "暗角",
-      "waitingAutoDetect": "等待自动检测...",
       "zoomInTooltip": "放大",
       "zoomOutTooltip": "缩小"
     },
@@ -1925,6 +1928,11 @@
       "title": "通用设置",
       "toolFocusMode": "工具专注模式",
       "toolFocusModeDesc": "展开某个工具时，自动折叠同一面板中的其他工具。",
+      "uiScale": "界面缩放",
+      "uiScaleCompact": "紧凑",
+      "uiScaleDefault": "默认",
+      "uiScaleDesc": "独立于系统显示缩放，调整界面大小。紧凑尺寸可在小尺寸笔记本屏幕上显示更多内容。",
+      "uiScaleLarge": "大",
       "xmpSync": "XMP 元数据同步",
       "xmpSyncDesc": "将评分、颜色标签和标签同步到标准 XMP 附属文件，以便与其他照片编辑器兼容。"
     },

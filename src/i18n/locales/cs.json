@@ -118,6 +118,9 @@
       "whiteBalance": "Vyvážení bílé"
     },
     "curves": {
+      "adaptiveContrast": "Nastavit body křivky",
+      "adaptiveContrastTooltip": "Umístí kotvu středních tónů na medián snímku. Hodnoty posuvníků zůstanou a rozsahy tmavých a světlých tónů si zachovají obvyklou šířku",
+      "anchorMedian": "Ukotvit na medián",
       "channelTitle": "{{channel}} kanál",
       "channels": {
         "blue": "Modrý",
@@ -128,6 +131,7 @@
       "copyParametric": "Kopírovat parametrickou křivku ({{channel}})",
       "copyPoint": "Kopírovat bodovou křivku ({{channel}})",
       "curveDataUnavailable": "Údaje o křivce nejsou k dispozici.",
+      "median": "Medián {{value}}",
       "parametricCurve": "Parametrická křivka",
       "params": {
         "blackLevel": "Úroveň černé",
@@ -1779,7 +1783,6 @@
       "selectManufacturer": "Vyberte výrobce",
       "title": "Korekce objektivu",
       "vignetting": "Vinětace",
-      "waitingAutoDetect": "Čekání na automatickou detekci...",
       "zoomInTooltip": "Přiblížit",
       "zoomOutTooltip": "Oddálit"
     },
@@ -2013,6 +2016,11 @@
       "title": "Obecná nastavení",
       "toolFocusMode": "Režim zaměření na nástroj",
       "toolFocusModeDesc": "Při rozbalení jednoho nástroje v panelu automaticky sbalí ostatní nástroje.",
+      "uiScale": "Měřítko rozhraní",
+      "uiScaleCompact": "Kompaktní",
+      "uiScaleDefault": "Výchozí",
+      "uiScaleDesc": "Zmenšete nebo zvětšete rozhraní nezávisle na systémovém škálování displeje. Kompaktní velikosti se lépe hodí na malé obrazovky notebooků.",
+      "uiScaleLarge": "Velké",
       "xmpSync": "Synchronizace metadat XMP",
       "xmpSyncDesc": "Synchronizujte hodnocení, barevné štítky a značky se standardními doprovodnými soubory XMP pro kompatibilitu s jinými editory fotografií."
     },

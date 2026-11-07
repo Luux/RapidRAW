@@ -1,6 +1,8 @@
 {
   "adjustments": {
     "basic": {
+      "adaptiveContrast": "Adaptiver Kontrast",
+      "adaptiveContrastTooltip": "Legt den Drehpunkt dieses Reglers auf den Median des Bildes. Erneut klicken stellt Mittelgrau ein",
       "blacks": "Schwarz",
       "brightness": "Helligkeit",
       "contrast": "Kontrast",
@@ -118,6 +120,15 @@
       "whiteBalance": "Weißabgleich"
     },
     "curves": {
+      "adaptiveContrast": "Kurvenpunkte setzen",
+      "adaptiveContrastImage": "Kurvenpunkte vom Bild",
+      "adaptiveContrastImageTooltip": "Setzt den Mittelton-Anker auf den Median des Bildes und legt den Kontrastdrehpunkt dorthin",
+      "adaptiveContrastMask": "Kurvenpunkte aus der Auswahl",
+      "adaptiveContrastMaskTooltip": "Setzt den Mittelton-Anker auf den Median dieser Auswahl und legt den Kontrastdrehpunkt dorthin",
+      "maskLocalTone": "Auswahlmedian",
+      "maskLocalToneTooltip": "Legt den Kontrastdrehpunkt auf den Median dieser Auswahl. Erneut klicken stellt Mittelgrau ein",
+      "adaptiveContrastTooltip": "Setzt den Mittelton-Anker auf den Median des Bildes. Die Reglerwerte bleiben, und die Bereiche für dunkle und helle Töne behalten ihre gewohnte Breite",
+      "anchorMedian": "Am Median verankern",
       "channelTitle": "{{channel}}-Kanal",
       "channels": {
         "blue": "Blau",
@@ -128,6 +139,7 @@
       "copyParametric": "Parametrische {{channel}}-Kurve kopieren",
       "copyPoint": "Punktkurve ({{channel}}) kopieren",
       "curveDataUnavailable": "Kurvendaten nicht verfügbar.",
+      "median": "Median {{value}}",
       "parametricCurve": "Parametrische Kurve",
       "params": {
         "blackLevel": "Schwarzpunkt",
@@ -1707,7 +1719,6 @@
       "selectManufacturer": "Hersteller auswählen",
       "title": "Objektivkorrektur",
       "vignetting": "Vignettierung",
-      "waitingAutoDetect": "Warten auf Auto-Erkennung...",
       "zoomInTooltip": "Vergrößern",
       "zoomOutTooltip": "Verkleinern"
     },
@@ -1931,6 +1942,11 @@
       "title": "Allgemeine Einstellungen",
       "toolFocusMode": "Werkzeug-Fokusmodus",
       "toolFocusModeDesc": "Klappt automatisch die anderen Werkzeuge eines Panels ein, wenn Sie eines aufklappen.",
+      "uiScale": "Oberflächenskalierung",
+      "uiScaleCompact": "Kompakt",
+      "uiScaleDefault": "Standard",
+      "uiScaleDesc": "Die Oberfläche unabhängig von der Anzeigeskalierung des Systems verkleinern oder vergrößern. Kompakte Größen passen besser auf kleine Laptop-Bildschirme.",
+      "uiScaleLarge": "Groß",
       "xmpSync": "XMP-Metadaten-Sync",
       "xmpSyncDesc": "Synchronisieren Sie Bewertungen, Farbmarkierungen und Tags in Standard-XMP-Filialdateien für Kompatibilität mit anderen Foto-Editoren."
     },

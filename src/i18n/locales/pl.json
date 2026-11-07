@@ -118,6 +118,9 @@
       "whiteBalance": "Balans bieli"
     },
     "curves": {
+      "adaptiveContrast": "Ustaw punkty krzywej",
+      "adaptiveContrastTooltip": "Ustawia kotwicę śródtonów na medianie obrazu. Wartości suwaków zostają, a zakresy ciemnych i jasnych tonów zachowują zwykłą szerokość",
+      "anchorMedian": "Zakotwicz na medianie",
       "channelTitle": "Kanał {{channel}}",
       "channels": {
         "blue": "Niebieski",
@@ -128,6 +131,7 @@
       "copyParametric": "Kopiuj krzywą parametryczną ({{channel}})",
       "copyPoint": "Kopiuj krzywą punktową ({{channel}})",
       "curveDataUnavailable": "Dane krzywej są niedostępne.",
+      "median": "Mediana {{value}}",
       "parametricCurve": "Krzywa parametryczna",
       "params": {
         "blackLevel": "Poziom czerni",
@@ -1779,7 +1783,6 @@
       "selectManufacturer": "Wybierz producenta",
       "title": "Korekcja obiektywu",
       "vignetting": "Winietowanie",
-      "waitingAutoDetect": "Oczekiwanie na automatyczne wykrycie...",
       "zoomInTooltip": "Przybliż",
       "zoomOutTooltip": "Oddal"
     },
@@ -2013,6 +2016,11 @@
       "title": "Ustawienia ogólne",
       "toolFocusMode": "Tryb skupienia na narzędziach",
       "toolFocusModeDesc": "Automatycznie zwija inne narzędzia w panelu, gdy rozwijasz jedno z nich.",
+      "uiScale": "Skala interfejsu",
+      "uiScaleCompact": "Kompaktowy",
+      "uiScaleDefault": "Domyślny",
+      "uiScaleDesc": "Zmniejsz lub powiększ interfejs niezależnie od skalowania ekranu w systemie. Kompaktowe rozmiary mieszczą więcej na małych ekranach laptopów.",
+      "uiScaleLarge": "Duży",
       "xmpSync": "Synchronizacja metadanych XMP",
       "xmpSyncDesc": "Synchronizuj oceny, etykiety kolorów i tagi do standardowych plików XMP w celu zachowania kompatybilności z innymi edytorami zdjęć."
     },

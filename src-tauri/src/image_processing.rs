@@ -2,10 +2,11 @@ use crate::as_shot::AsShot;
 use crate::baseline_exposure::BaselineOptions;
 use crate::gpu_processing::{GpuPipelines, WgpuDisplay};
 use crate::guided_perspective::{GuideLine, compute_guided_homography, count_valid_lines};
+use crate::lens_correction::{LensProfile, has_lens_selection, lens_profile};
 use crate::white_balance::{self, WhiteBalance};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Vec2, Vec3};
-use image::{DynamicImage, GenericImageView, Rgb32FImage, Rgba};
+use image::{DynamicImage, GenericImageView, GrayImage, Rgb32FImage, Rgba};
 use imageproc::geometric_transformations::{Border, Interpolation, rotate_about_center};
 use nalgebra::{Matrix3 as NaMatrix3, Vector3 as NaVector3};
 use rawler::decoders::Orientation;
@@ -211,15 +212,8 @@ pub struct GeometryParams {
     pub lens_distortion_enabled: bool,
     pub lens_tca_enabled: bool,
     pub lens_vignette_enabled: bool,
-    pub lens_dist_k1: f32,
-    pub lens_dist_k2: f32,
-    pub lens_dist_k3: f32,
-    pub lens_model: u32,
-    pub tca_vr: f32,
-    pub tca_vb: f32,
-    pub vig_k1: f32,
-    pub vig_k2: f32,
-    pub vig_k3: f32,
+    #[serde(default)]
+    pub lens: Option<LensProfile>,
     #[serde(default)]
     pub guided_lines: Vec<GuideLine>,
     #[serde(default)]
@@ -243,26 +237,47 @@ impl Default for GeometryParams {
             lens_distortion_enabled: true,
             lens_tca_enabled: true,
             lens_vignette_enabled: true,
-            lens_dist_k1: 0.0,
-            lens_dist_k2: 0.0,
-            lens_dist_k3: 0.0,
-            lens_model: 0,
-            tca_vr: 1.0,
-            tca_vb: 1.0,
-            vig_k1: 0.0,
-            vig_k2: 0.0,
-            vig_k3: 0.0,
+            lens: None,
             guided_lines: Vec::new(),
             guided_perspective_enabled: false,
         }
     }
 }
 
-pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> GeometryParams {
-    let lens_params = adjustments
-        .get("lensDistortionParams")
-        .and_then(|v| v.as_object());
+impl GeometryParams {
+    fn lens_distortion(&self) -> Option<&[f64; 5]> {
+        self.lens
+            .as_ref()
+            .and_then(|l| l.distortion.as_ref())
+            .filter(|_| self.lens_distortion_enabled && self.lens_distortion_amount != 0.0)
+    }
 
+    fn lens_tca(&self) -> Option<&[f64; 6]> {
+        self.lens
+            .as_ref()
+            .and_then(|l| l.tca.as_ref())
+            .filter(|_| self.lens_tca_enabled && self.lens_tca_amount != 0.0)
+    }
+
+    fn lens_vignetting(&self) -> Option<&[f64; 3]> {
+        self.lens
+            .as_ref()
+            .and_then(|l| l.vignetting.as_ref())
+            .filter(|_| self.lens_vignette_enabled && self.lens_vignette_amount != 0.0)
+    }
+}
+
+pub fn get_geometry_params_from_json(
+    path: &str,
+    adjustments: &serde_json::Value,
+) -> GeometryParams {
+    GeometryParams {
+        lens: lens_profile(path, adjustments),
+        ..user_geometry_params(adjustments)
+    }
+}
+
+fn user_geometry_params(adjustments: &serde_json::Value) -> GeometryParams {
     let guided = adjustments.get("guidedPerspective");
     let guided_perspective_enabled = guided
         .and_then(|g| g.get("enabled"))
@@ -296,33 +311,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         lens_tca_enabled: adjustments["lensTcaEnabled"].as_bool().unwrap_or(true),
         lens_vignette_enabled: adjustments["lensVignetteEnabled"].as_bool().unwrap_or(true),
 
-        lens_dist_k1: lens_params
-            .and_then(|p| p.get("k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k2: lens_params
-            .and_then(|p| p.get("k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_dist_k3: lens_params
-            .and_then(|p| p.get("k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        lens_model: lens_params
-            .and_then(|p| p.get("model").and_then(|m| m.as_u64()))
-            .unwrap_or(0) as u32,
-        tca_vr: lens_params
-            .and_then(|p| p.get("tca_vr").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        tca_vb: lens_params
-            .and_then(|p| p.get("tca_vb").and_then(|k| k.as_f64()))
-            .unwrap_or(1.0) as f32,
-        vig_k1: lens_params
-            .and_then(|p| p.get("vig_k1").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k2: lens_params
-            .and_then(|p| p.get("vig_k2").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
-        vig_k3: lens_params
-            .and_then(|p| p.get("vig_k3").and_then(|k| k.as_f64()))
-            .unwrap_or(0.0) as f32,
+        lens: None,
         guided_lines,
         guided_perspective_enabled,
     }
@@ -345,14 +334,10 @@ fn u8_to_f32_lut() -> &'static [f32; 256] {
     })
 }
 
-pub fn downscale_f32_image_if_needed(
-    image: &DynamicImage,
-    nwidth: u32,
-    nheight: u32,
-) -> Option<DynamicImage> {
-    let start = std::time::Instant::now();
-
-    let (width, height) = image.dimensions();
+pub fn fitted_size(
+    (width, height): (u32, u32),
+    (nwidth, nheight): (u32, u32),
+) -> Option<(u32, u32)> {
     if nwidth == 0 || nheight == 0 || (nwidth >= width && nheight >= height) {
         return None;
     }
@@ -361,9 +346,18 @@ pub fn downscale_f32_image_if_needed(
     let new_w = (width as f32 * ratio).round() as u32;
     let new_h = (height as f32 * ratio).round() as u32;
 
-    if new_w == 0 || new_h == 0 {
-        return None;
-    }
+    (new_w > 0 && new_h > 0).then_some((new_w, new_h))
+}
+
+pub fn downscale_f32_image_if_needed(
+    image: &DynamicImage,
+    nwidth: u32,
+    nheight: u32,
+) -> Option<DynamicImage> {
+    let start = std::time::Instant::now();
+
+    let (width, height) = image.dimensions();
+    let (new_w, new_h) = fitted_size((width, height), (nwidth, nheight))?;
 
     let x_ratio = width as f32 / new_w as f32;
     let y_ratio = height as f32 / new_h as f32;
@@ -748,114 +742,169 @@ fn interpolate_pixel_with_tca(
     pixel_out[2] = sample_channel(bx, by, 2);
 }
 
-fn solve_generic_distortion_inv(r_target: f64, k_scaled: f64) -> f64 {
-    if k_scaled.abs() < 1e-9 {
-        return r_target;
-    }
-
-    let mut r = r_target;
-    for _ in 0..10 {
-        let r2 = r * r;
-        let val = k_scaled * r2 * r + r - r_target;
-        let slope = 3.0 * k_scaled * r2 + 1.0;
-
-        if slope.abs() < 1e-9 {
-            break;
-        }
-        let delta = val / slope;
-        r -= delta;
-        if delta.abs() < 1e-6 {
-            break;
-        }
-    }
-    r
+pub struct WarpModel {
+    pub forward: NaMatrix3<f32>,
+    pub inverse: NaMatrix3<f32>,
+    pub cx: f32,
+    pub cy: f32,
+    pub max_radius_sq_inv: f64,
+    pub k_distortion: f64,
+    pub lens_k: [f64; 4],
+    pub lens_scale: f64,
+    pub has_lens_correction: bool,
+    pub auto_crop_scale: f32,
+    pub tca_red: [f64; 3],
+    pub tca_blue: [f64; 3],
+    pub tca_scale: f64,
+    pub has_tca: bool,
+    pub vignette_k: [f64; 3],
+    pub vignette_scale: f64,
+    pub vignette_amount: f64,
+    pub has_vignetting: bool,
 }
 
-fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32) -> f64 {
-    let cx = (width / 2.0) as f64;
-    let cy = (height / 2.0) as f64;
-    let half_diagonal = (cx * cx + cy * cy).sqrt();
-    let max_radius_sq_inv = 1.0 / (cx * cx + cy * cy);
+impl WarpModel {
+    pub fn new(params: &GeometryParams, width: u32, height: u32) -> Self {
+        let (forward, cx, cy, half_diagonal) =
+            build_transform_matrices(params, width as f32, height as f32);
+        let inverse = forward.try_inverse().unwrap_or(NaMatrix3::identity());
+        let lens = params.lens.as_ref();
+        let radial_scale = lens.map_or(0.0, |l| l.distortion_scale) / half_diagonal;
 
-    let lk1 = params.lens_dist_k1 as f64;
-    let lk2 = params.lens_dist_k2 as f64;
-    let lk3 = params.lens_dist_k3 as f64;
-    let lens_dist_amt = (params.lens_distortion_amount as f64) * 2.5;
+        let amount = params.lens_distortion_amount as f64;
+        let (lens_k, lens_scale) = params.lens_distortion().map_or(([0.0; 4], 0.0), |c| {
+            (
+                [c[1], c[2], c[3], c[4]].map(|k| k / c[0] * amount),
+                radial_scale / c[0],
+            )
+        });
 
-    let k_distortion = (params.distortion as f64 / 100.0) * 2.5;
+        let tca_amount = params.lens_tca_amount as f64;
+        let tca_channel =
+            |v: f64, c: f64, b: f64| [1.0 + (v - 1.0) * tca_amount, c * tca_amount, b * tca_amount];
+        let (tca_red, tca_blue) = params
+            .lens_tca()
+            .map_or(([1.0, 0.0, 0.0], [1.0, 0.0, 0.0]), |t| {
+                (tca_channel(t[0], t[2], t[4]), tca_channel(t[1], t[3], t[5]))
+            });
 
-    let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
-    let is_ptlens = params.lens_model == 1;
+        let mut model = Self {
+            forward,
+            inverse,
+            cx,
+            cy,
+            max_radius_sq_inv: 1.0 / (half_diagonal * half_diagonal),
+            k_distortion: (params.distortion as f64 / 100.0) * 2.5,
+            lens_k,
+            lens_scale,
+            has_lens_correction: params.lens_distortion().is_some(),
+            auto_crop_scale: 1.0,
+            tca_red,
+            tca_blue,
+            tca_scale: radial_scale,
+            has_tca: params.lens_tca().is_some(),
+            vignette_k: params.lens_vignetting().copied().unwrap_or_default(),
+            vignette_scale: lens.map_or(0.0, |l| l.vignetting_scale) / half_diagonal,
+            vignette_amount: params.lens_vignette_amount as f64,
+            has_vignetting: params.lens_vignetting().is_some(),
+        };
+        model.auto_crop_scale = model.compute_auto_crop_scale();
+        model
+    }
 
-    let sample_points: [(f64, f64); 8] = [
-        (cx, 0.0),
-        (cx, height as f64),
-        (0.0, cy),
-        (width as f64, cy),
-        (0.0, 0.0),
-        (width as f64, 0.0),
-        (0.0, height as f64),
-        (width as f64, height as f64),
-    ];
+    fn radial_factor(&self, radius: f64) -> f64 {
+        let user = 1.0 + self.k_distortion * radius * radius * self.max_radius_sq_inv;
+        let r = radius * user * self.lens_scale;
+        let [k1, k2, k3, k4] = self.lens_k;
+        user * (1.0 + r * (k1 + r * (k2 + r * (k3 + r * k4))))
+    }
 
-    let mut max_scale: f64 = 1.0;
-
-    for &(px, py) in &sample_points {
-        let dx = px - cx;
-        let dy = py - cy;
-        let ru = (dx * dx + dy * dy).sqrt();
-        if ru < 1e-6 {
-            continue;
+    fn compute_auto_crop_scale(&self) -> f32 {
+        if !self.has_lens_correction && self.k_distortion.abs() <= 1e-5 {
+            return 1.0;
         }
+        const RADIUS_STEPS: usize = 512;
+        const BORDER_SAMPLES: usize = 64;
 
-        let mut mapped_dx = dx;
-        let mut mapped_dy = dy;
+        let (cx, cy) = (self.cx as f64, self.cy as f64);
+        let half_diagonal = cx.hypot(cy);
+        let mut furthest = 0.0f64;
+        let reach: Vec<(f64, f64)> = (0..=RADIUS_STEPS)
+            .map(|i| {
+                let radius = half_diagonal * i as f64 / RADIUS_STEPS as f64;
+                furthest = furthest.max(radius * self.radial_factor(radius));
+                (radius, furthest)
+            })
+            .collect();
 
-        if has_lens_correction {
-            let ru_norm = ru / half_diagonal;
-            let ru_norm2 = ru_norm * ru_norm;
+        let shortest = cx.min(cy);
+        let scale = (0..=BORDER_SAMPLES)
+            .filter_map(|j| {
+                let border =
+                    shortest + (half_diagonal - shortest) * j as f64 / BORDER_SAMPLES as f64;
+                let i = reach.partition_point(|&(_, source)| source < border);
+                let ((r0, s0), (r1, s1)) = (*reach.get(i.checked_sub(1)?)?, *reach.get(i)?);
+                Some(border / (r0 + (border - s0) / (s1 - s0) * (r1 - r0)))
+            })
+            .fold(1.0f64, f64::max);
 
-            let rd_norm = if is_ptlens {
-                let a = lk1;
-                let b = lk2;
-                let c = lk3;
-                let d = 1.0 - a - b - c;
-                ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
-            } else {
-                ru_norm
-                    * (1.0
-                        + lk1 * ru_norm2
-                        + lk2 * (ru_norm2 * ru_norm2)
-                        + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
-            };
-
-            let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
-            let scale = effective_r_norm / ru_norm;
-
-            mapped_dx *= scale;
-            mapped_dy *= scale;
-        }
-
-        if k_distortion.abs() > 1e-5 {
-            let r2_norm = (mapped_dx * mapped_dx + mapped_dy * mapped_dy) * max_radius_sq_inv;
-            let f = 1.0 + k_distortion * r2_norm;
-            mapped_dx *= f;
-            mapped_dy *= f;
-        }
-
-        let mapped_ru = (mapped_dx * mapped_dx + mapped_dy * mapped_dy).sqrt();
-        let scale = mapped_ru / ru;
-
-        if scale > max_scale {
-            max_scale = scale;
+        if scale > 1.0 {
+            (scale * 1.002) as f32
+        } else {
+            1.0
         }
     }
 
-    if max_scale > 1.0 {
-        max_scale * 1.002
-    } else {
-        max_scale
+    pub fn source_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (cx, cy) = (self.cx as f64, self.cy as f64);
+        let crop = self.auto_crop_scale as f64;
+        let (dx, dy) = ((x - cx) / crop, (y - cy) / crop);
+        let factor = self.radial_factor(dx.hypot(dy));
+        (cx + dx * factor, cy + dy * factor)
+    }
+
+    fn output_point(&self, x: f64, y: f64) -> (f64, f64) {
+        let (cx, cy) = (self.cx as f64, self.cy as f64);
+        let (dx, dy) = (x - cx, y - cy);
+        let source_radius = dx.hypot(dy);
+        let mapped = |r: f64| r * self.radial_factor(r);
+        let mut radius = source_radius;
+        for _ in 0..20 {
+            let h = (radius.abs() * 1e-4).max(1e-3);
+            let slope = (mapped(radius + h) - mapped(radius - h)) / (2.0 * h);
+            if slope.abs() < 1e-9 {
+                break;
+            }
+            let step = (mapped(radius) - source_radius) / slope;
+            radius -= step;
+            if step.abs() < 1e-4 {
+                break;
+            }
+        }
+        let scale = if source_radius > 1e-6 {
+            radius / source_radius
+        } else {
+            1.0
+        } * self.auto_crop_scale as f64;
+        (cx + dx * scale, cy + dy * scale)
+    }
+
+    fn tca_scales(&self, dx: f64, dy: f64) -> (f32, f32) {
+        let r = dx.hypot(dy) * self.tca_scale;
+        let scale = |[v, c, b]: [f64; 3]| (v + r * (c + r * b)) as f32;
+        (scale(self.tca_red), scale(self.tca_blue))
+    }
+
+    fn vignette_gain(&self, dx: f64, dy: f64) -> f32 {
+        let r = dx.hypot(dy) * self.vignette_scale;
+        let r2 = r * r;
+        let [k1, k2, k3] = self.vignette_k;
+        let falloff = 1.0 + r2 * (k1 + r2 * (k2 + r2 * k3));
+        if falloff > 1e-6 {
+            (1.0 + (1.0 / falloff - 1.0) * self.vignette_amount) as f32
+        } else {
+            1.0
+        }
     }
 }
 
@@ -871,54 +920,12 @@ pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> Dyna
     let (width, height) = src_img.dimensions();
     let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
 
-    let (forward_transform, cx, cy, half_diagonal) =
-        build_transform_matrices(&params, width as f32, height as f32);
-    let inv = forward_transform
-        .try_inverse()
-        .unwrap_or(NaMatrix3::identity());
-
+    let model = WarpModel::new(&params, width, height);
+    let inv = model.inverse;
     let step_vec_x = NaVector3::new(inv[(0, 0)], inv[(1, 0)], inv[(2, 0)]);
     let step_vec_y = NaVector3::new(inv[(0, 1)], inv[(1, 1)], inv[(2, 1)]);
     let origin_vec = NaVector3::new(inv[(0, 2)], inv[(1, 2)], inv[(2, 2)]);
-
-    let max_radius_sq_inv = 1.0 / ((cx * cx + cy * cy) as f64);
-    let hd = half_diagonal;
-
-    let k_distortion = (params.distortion as f64 / 100.0) * 2.5;
-    let lk1 = params.lens_dist_k1 as f64;
-    let lk2 = params.lens_dist_k2 as f64;
-    let lk3 = params.lens_dist_k3 as f64;
-    let lens_dist_amt = (params.lens_distortion_amount as f64) * 2.5;
-
-    let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
-    let is_ptlens = params.lens_model == 1;
-
-    let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
-        compute_lens_auto_crop_scale(&params, width as f32, height as f32) as f32
-    } else {
-        1.0
-    };
-
-    let vr = if (params.tca_vr - 1.0).abs() > 1e-5 {
-        params.tca_vr + (1.0 - params.tca_vr) * (1.0 - params.lens_tca_amount)
-    } else {
-        1.0
-    };
-    let vb = if (params.tca_vb - 1.0).abs() > 1e-5 {
-        params.tca_vb + (1.0 - params.tca_vb) * (1.0 - params.lens_tca_amount)
-    } else {
-        1.0
-    };
-    let has_tca = params.lens_tca_enabled && ((vr - 1.0).abs() > 1e-5 || (vb - 1.0).abs() > 1e-5);
-
-    let vk1 = params.vig_k1 as f64;
-    let vk2 = params.vig_k2 as f64;
-    let vk3 = params.vig_k3 as f64;
-    let lens_vig_amt = (params.lens_vignette_amount as f64) * 0.8;
-    let has_vignetting = params.lens_vignette_enabled
-        && (vk1.abs() > 1e-6 || vk2.abs() > 1e-6 || vk3.abs() > 1e-6)
-        && lens_vig_amt > 0.01;
+    let (cx, cy) = (model.cx as f64, model.cy as f64);
 
     let src_raw = src_img.as_raw();
     let width_usize = width as usize;
@@ -927,98 +934,37 @@ pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> Dyna
         src_raw,
         src_width: width_usize,
         src_height: height_usize,
-        cx,
-        cy,
+        cx: model.cx,
+        cy: model.cy,
     };
 
     out_buffer
         .par_chunks_exact_mut(width_usize * 3)
         .enumerate()
         .for_each(|(y, row_pixel_data)| {
-            let y_f = y as f32;
-            let mut current_vec = origin_vec + (step_vec_y * y_f);
+            let row_origin = origin_vec + (step_vec_y * y as f32);
 
-            for pixel in row_pixel_data.as_chunks_mut::<3>().0.iter_mut() {
-                if current_vec.z.abs() > 1e-6 {
-                    let inv_z = 1.0 / current_vec.z;
-                    let mut src_x = current_vec.x * inv_z;
-                    let mut src_y = current_vec.y * inv_z;
-
-                    if auto_crop_scale > 1.0 {
-                        src_x = cx + (src_x - cx) / auto_crop_scale;
-                        src_y = cy + (src_y - cy) / auto_crop_scale;
-                    }
-
-                    if has_lens_correction {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let ru = (dx * dx + dy * dy).sqrt();
-
-                        if ru > 1e-6 {
-                            let ru_norm = ru / hd;
-                            let ru_norm2 = ru_norm * ru_norm;
-
-                            let rd_norm = if is_ptlens {
-                                let a = lk1;
-                                let b = lk2;
-                                let c = lk3;
-                                let d = 1.0 - a - b - c;
-                                ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
-                            } else {
-                                ru_norm
-                                    * (1.0
-                                        + lk1 * ru_norm2
-                                        + lk2 * (ru_norm2 * ru_norm2)
-                                        + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
-                            };
-
-                            let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
-                            let scale = effective_r_norm / ru_norm;
-
-                            src_x = cx + (dx * scale) as f32;
-                            src_y = cy + (dy * scale) as f32;
-                        }
-                    }
-
-                    if k_distortion.abs() > 1e-5 {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let r2_norm = (dx * dx + dy * dy) * max_radius_sq_inv;
-                        let f = 1.0 + k_distortion * r2_norm;
-
-                        src_x = cx + (dx * f) as f32;
-                        src_y = cy + (dy * f) as f32;
-                    }
-
-                    if has_tca {
-                        interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, vr, vb, pixel);
-                    } else {
-                        interpolate_pixel(src_raw, width_usize, height_usize, src_x, src_y, pixel);
-                    }
-
-                    if has_vignetting {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let ru = (dx * dx + dy * dy).sqrt();
-                        let ru_norm = ru / hd;
-                        let ru_norm2 = ru_norm * ru_norm;
-
-                        let v_factor = 1.0
-                            + vk1 * ru_norm2
-                            + vk2 * (ru_norm2 * ru_norm2)
-                            + vk3 * (ru_norm2 * ru_norm2 * ru_norm2);
-
-                        if v_factor > 1e-6 {
-                            let correction_gain = 1.0 / v_factor;
-                            let final_gain = 1.0 + (correction_gain - 1.0) * lens_vig_amt;
-
-                            pixel[0] *= final_gain as f32;
-                            pixel[1] *= final_gain as f32;
-                            pixel[2] *= final_gain as f32;
-                        }
-                    }
+            for (x, pixel) in row_pixel_data.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+                let current_vec = row_origin + step_vec_x * x as f32;
+                if current_vec.z.abs() <= 1e-6 {
+                    continue;
                 }
-                current_vec += step_vec_x;
+                let inv_z = 1.0 / current_vec.z as f64;
+                let (sx, sy) =
+                    model.source_point(current_vec.x as f64 * inv_z, current_vec.y as f64 * inv_z);
+                let (src_x, src_y) = (sx as f32, sy as f32);
+
+                if model.has_tca {
+                    let (vr, vb) = model.tca_scales(sx - cx, sy - cy);
+                    interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, vr, vb, pixel);
+                } else {
+                    interpolate_pixel(src_raw, width_usize, height_usize, src_x, src_y, pixel);
+                }
+
+                if model.has_vignetting {
+                    let gain = model.vignette_gain(sx - cx, sy - cy);
+                    pixel.iter_mut().for_each(|c| *c *= gain);
+                }
             }
         });
 
@@ -1038,27 +984,7 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
     let (width, height) = src_img.dimensions();
     let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
 
-    let (forward_transform, cx, cy, half_diagonal) =
-        build_transform_matrices(&params, width as f32, height as f32);
-    let max_radius_sq_inv = 1.0 / ((cx * cx + cy * cy) as f64);
-    let hd = half_diagonal;
-
-    let k_distortion = (params.distortion as f64 / 100.0) * 2.5;
-    let lk1 = params.lens_dist_k1 as f64;
-    let lk2 = params.lens_dist_k2 as f64;
-    let lk3 = params.lens_dist_k3 as f64;
-    let lens_dist_amt = (params.lens_distortion_amount as f64) * 2.5;
-
-    let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
-    let is_ptlens = params.lens_model == 1;
-
-    let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
-        compute_lens_auto_crop_scale(&params, width as f32, height as f32) as f32
-    } else {
-        1.0
-    };
-
+    let model = WarpModel::new(&params, width, height);
     let src_raw = src_img.as_raw();
     let width_usize = width as usize;
     let height_usize = height as usize;
@@ -1067,91 +993,9 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
         .par_chunks_exact_mut(width_usize * 3)
         .enumerate()
         .for_each(|(y, row_pixel_data)| {
-            let y_f = y as f32;
-
             for (x, pixel) in row_pixel_data.as_chunks_mut::<3>().0.iter_mut().enumerate() {
-                let x_f = x as f32;
-                let mut current_x = x_f;
-                let mut current_y = y_f;
-
-                if k_distortion.abs() > 1e-5 {
-                    let dx = (current_x - cx) as f64;
-                    let dy = (current_y - cy) as f64;
-                    let r_distorted = (dx * dx + dy * dy).sqrt();
-
-                    if r_distorted > 1e-6 {
-                        let k_effective = k_distortion * max_radius_sq_inv;
-                        let r_straight = solve_generic_distortion_inv(r_distorted, k_effective);
-
-                        let scale = r_straight / r_distorted;
-                        current_x = cx + (dx * scale) as f32;
-                        current_y = cy + (dy * scale) as f32;
-                    }
-                }
-
-                if has_lens_correction {
-                    let dx = (current_x - cx) as f64;
-                    let dy = (current_y - cy) as f64;
-                    let rd = (dx * dx + dy * dy).sqrt();
-
-                    if rd > 1e-6 {
-                        let mut ru = rd;
-
-                        for _ in 0..8 {
-                            let ru_norm = ru / hd;
-                            let ru_norm2 = ru_norm * ru_norm;
-
-                            let (f_val, f_prime) = if is_ptlens {
-                                let a = lk1;
-                                let b = lk2;
-                                let c = lk3;
-                                let d = 1.0 - a - b - c;
-                                let poly = a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d;
-
-                                let val = ru * poly;
-                                let prime = 4.0 * a * ru_norm2 * ru_norm
-                                    + 3.0 * b * ru_norm2
-                                    + 2.0 * c * ru_norm
-                                    + d;
-                                (val, prime)
-                            } else {
-                                let poly = 1.0
-                                    + lk1 * ru_norm2
-                                    + lk2 * (ru_norm2 * ru_norm2)
-                                    + lk3 * (ru_norm2 * ru_norm2 * ru_norm2);
-                                let val = ru * poly;
-                                let poly_prime = 2.0 * lk1 * ru_norm
-                                    + 4.0 * lk2 * ru_norm2 * ru_norm
-                                    + 6.0 * lk3 * (ru_norm2 * ru_norm2) * ru_norm;
-                                let prime = poly + ru_norm * poly_prime;
-                                (val, prime)
-                            };
-
-                            let g_val = ru + (f_val - ru) * lens_dist_amt - rd;
-                            let g_prime = 1.0 + (f_prime - 1.0) * lens_dist_amt;
-
-                            if g_prime.abs() < 1e-7 {
-                                break;
-                            }
-                            let delta = g_val / g_prime;
-                            ru -= delta;
-                            if delta.abs() < 1e-4 {
-                                break;
-                            }
-                        }
-
-                        let scale = ru / rd;
-                        current_x = cx + (dx * scale) as f32;
-                        current_y = cy + (dy * scale) as f32;
-                    }
-                }
-
-                if auto_crop_scale > 1.0 {
-                    current_x = cx + (current_x - cx) * auto_crop_scale;
-                    current_y = cy + (current_y - cy) * auto_crop_scale;
-                }
-
-                let target_vec = forward_transform * NaVector3::new(current_x, current_y, 1.0);
+                let (ox, oy) = model.output_point(x as f64, y as f64);
+                let target_vec = model.forward * NaVector3::new(ox as f32, oy as f32, 1.0);
 
                 if target_vec.z.abs() > 1e-6 {
                     let inv_z = 1.0 / target_vec.z;
@@ -1170,6 +1014,7 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
 
 pub fn inverse_transform_mask(
     mask: image::GrayImage,
+    path: &str,
     adjustments: &serde_json::Value,
 ) -> image::GrayImage {
     let rotation_degrees = adjustments
@@ -1201,7 +1046,7 @@ pub fn inverse_transform_mask(
     let inverse_steps = (4 - (steps % 4)) % 4;
     let unrotated_coarse = apply_coarse_rotation(flipped, inverse_steps).into_owned();
 
-    let unwarped = apply_unwarp_geometry(unrotated_coarse, adjustments).into_owned();
+    let unwarped = apply_unwarp_geometry(unrotated_coarse, path, adjustments).into_owned();
 
     unwarped.into_luma8()
 }
@@ -1211,6 +1056,7 @@ pub fn inverse_transform_point(
     mut y: f64,
     mut curr_w: f64,
     mut curr_h: f64,
+    path: &str,
     adjustments: &serde_json::Value,
 ) -> (f64, f64) {
     let rotation_degrees = adjustments
@@ -1258,87 +1104,12 @@ pub fn inverse_transform_point(
         std::mem::swap(&mut curr_w, &mut curr_h);
     }
 
-    let params = get_geometry_params_from_json(adjustments);
-    let width = curr_w as f32;
-    let height = curr_h as f32;
-
-    let (forward_transform, cx_f32, cy_f32, hd) = build_transform_matrices(&params, width, height);
-    let cx = cx_f32 as f64;
-    let cy = cy_f32 as f64;
-    let inv = forward_transform
-        .try_inverse()
-        .unwrap_or(nalgebra::Matrix3::identity());
-
-    let vec = inv * nalgebra::Vector3::new(x as f32, y as f32, 1.0);
+    let params = get_geometry_params_from_json(path, adjustments);
+    let model = WarpModel::new(&params, curr_w as u32, curr_h as u32);
+    let vec = model.inverse * nalgebra::Vector3::new(x as f32, y as f32, 1.0);
     if vec.z.abs() > 1e-6 {
         let inv_z = 1.0 / (vec.z as f64);
-        let mut src_x = (vec.x as f64) * inv_z;
-        let mut src_y = (vec.y as f64) * inv_z;
-
-        let k_distortion = (params.distortion as f64 / 100.0) * 2.5;
-        let lk1 = params.lens_dist_k1 as f64;
-        let lk2 = params.lens_dist_k2 as f64;
-        let lk3 = params.lens_dist_k3 as f64;
-        let lens_dist_amt = (params.lens_distortion_amount as f64) * 2.5;
-
-        let has_lens_correction = params.lens_distortion_enabled
-            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
-        let is_ptlens = params.lens_model == 1;
-
-        let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
-            compute_lens_auto_crop_scale(&params, width, height)
-        } else {
-            1.0
-        };
-
-        if auto_crop_scale > 1.0 {
-            src_x = cx + (src_x - cx) / auto_crop_scale;
-            src_y = cy + (src_y - cy) / auto_crop_scale;
-        }
-
-        if has_lens_correction {
-            let dx = src_x - cx;
-            let dy = src_y - cy;
-            let ru = (dx * dx + dy * dy).sqrt();
-
-            if ru > 1e-6 {
-                let ru_norm = ru / hd;
-                let ru_norm2 = ru_norm * ru_norm;
-
-                let rd_norm = if is_ptlens {
-                    let a = lk1;
-                    let b = lk2;
-                    let c = lk3;
-                    let d = 1.0 - a - b - c;
-                    ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
-                } else {
-                    ru_norm
-                        * (1.0
-                            + lk1 * ru_norm2
-                            + lk2 * (ru_norm2 * ru_norm2)
-                            + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
-                };
-
-                let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
-                let scale = effective_r_norm / ru_norm;
-
-                src_x = cx + (dx * scale);
-                src_y = cy + (dy * scale);
-            }
-        }
-
-        if k_distortion.abs() > 1e-5 {
-            let max_radius_sq_inv = 1.0 / (cx * cx + cy * cy);
-            let dx = src_x - cx;
-            let dy = src_y - cy;
-            let r2_norm = (dx * dx + dy * dy) * max_radius_sq_inv;
-            let f = 1.0 + k_distortion * r2_norm;
-
-            src_x = cx + (dx * f);
-            src_y = cy + (dy * f);
-        }
-
-        return (src_x, src_y);
+        return model.source_point(vec.x as f64 * inv_z, vec.y as f64 * inv_z);
     }
 
     (x, y)
@@ -1497,10 +1268,11 @@ pub fn oriented_rgb32f(
 
 pub fn apply_geometry_warp<'a>(
     image: impl IntoCowImage<'a>,
+    path: &str,
     adjustments: &serde_json::Value,
 ) -> Cow<'a, DynamicImage> {
     let image = image.into_cow();
-    let params = get_geometry_params_from_json(adjustments);
+    let params = get_geometry_params_from_json(path, adjustments);
     if !is_geometry_identity(&params) {
         Cow::Owned(warp_image_geometry(image.as_ref(), params))
     } else {
@@ -1510,10 +1282,11 @@ pub fn apply_geometry_warp<'a>(
 
 pub fn apply_unwarp_geometry<'a>(
     image: impl IntoCowImage<'a>,
+    path: &str,
     adjustments: &serde_json::Value,
 ) -> Cow<'a, DynamicImage> {
     let image = image.into_cow();
-    let params = get_geometry_params_from_json(adjustments);
+    let params = get_geometry_params_from_json(path, adjustments);
     if !is_geometry_identity(&params) {
         Cow::Owned(unwarp_image_geometry(image.as_ref(), params))
     } else {
@@ -1554,34 +1327,11 @@ pub fn apply_rotation<'a>(
     Cow::Owned(DynamicImage::ImageRgba32F(rotated))
 }
 
-pub fn apply_crop<'a>(image: impl IntoCowImage<'a>, crop_value: &Value) -> Cow<'a, DynamicImage> {
-    let image = image.into_cow();
-    if crop_value.is_null() {
-        return image;
-    }
-
-    if let Ok(crop) = serde_json::from_value::<Crop>(crop_value.clone()) {
-        let x = crop.x.round() as u32;
-        let y = crop.y.round() as u32;
-        let width = crop.width.round() as u32;
-        let height = crop.height.round() as u32;
-
-        if width > 0 && height > 0 {
-            let (img_w, img_h) = image.dimensions();
-            if x < img_w && y < img_h {
-                let new_width = (img_w - x).min(width);
-                let new_height = (img_h - y).min(height);
-
-                if new_width > 0 && new_height > 0 {
-                    if x == 0 && y == 0 && new_width == img_w && new_height == img_h {
-                        return image;
-                    }
-                    return Cow::Owned(image.crop_imm(x, y, new_width, new_height));
-                }
-            }
-        }
-    }
-    image
+pub fn crop_rect(crop: &Crop, (img_w, img_h): (u32, u32)) -> Option<(u32, u32, u32, u32)> {
+    let (x, y) = (crop.x.round() as u32, crop.y.round() as u32);
+    let (width, height) = (crop.width.round() as u32, crop.height.round() as u32);
+    (width > 0 && height > 0 && x < img_w && y < img_h)
+        .then(|| (x, y, (img_w - x).min(width), (img_h - y).min(height)))
 }
 
 pub fn apply_flip<'a>(
@@ -1609,23 +1359,6 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
         return false;
     }
 
-    let dist_identity = !params.lens_distortion_enabled
-        || ((params.lens_distortion_amount - 1.0).abs() < 1e-4
-            && params.lens_dist_k1.abs() < 1e-6
-            && params.lens_dist_k2.abs() < 1e-6
-            && params.lens_dist_k3.abs() < 1e-6);
-
-    let tca_identity = !params.lens_tca_enabled
-        || ((params.lens_tca_amount - 1.0).abs() < 1e-4
-            && (params.tca_vr - 1.0).abs() < 1e-6
-            && (params.tca_vb - 1.0).abs() < 1e-6);
-
-    let vig_identity = !params.lens_vignette_enabled
-        || ((params.lens_vignette_amount - 1.0).abs() < 1e-4
-            && params.vig_k1.abs() < 1e-6
-            && params.vig_k2.abs() < 1e-6
-            && params.vig_k3.abs() < 1e-6);
-
     params.distortion == 0.0
         && params.vertical == 0.0
         && params.horizontal == 0.0
@@ -1634,9 +1367,9 @@ pub fn is_geometry_identity(params: &GeometryParams) -> bool {
         && params.scale == 100.0
         && params.x_offset == 0.0
         && params.y_offset == 0.0
-        && dist_identity
-        && tca_identity
-        && vig_identity
+        && params.lens_distortion().is_none()
+        && params.lens_tca().is_none()
+        && params.lens_vignetting().is_none()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1812,7 +1545,7 @@ pub struct GlobalAdjustments {
     pub red_curve_count: u32,
     pub green_curve_count: u32,
     pub blue_curve_count: u32,
-    _pad_end1: f32,
+    contrast_pivot: f32,
     _pad_end2: f32,
     _pad_end3: f32,
     _pad_end4: f32,
@@ -1854,7 +1587,7 @@ pub struct MaskAdjustments {
     pub wb_log_gain_l: f32,
     pub wb_log_gain_m: f32,
     pub wb_log_gain_s: f32,
-    _pad_wb: f32,
+    contrast_pivot: f32,
     pub color_grading_shadows: ColorGradeSettings,
     pub color_grading_midtones: ColorGradeSettings,
     pub color_grading_highlights: ColorGradeSettings,
@@ -2486,8 +2219,7 @@ pub fn is_image_edited(
         return true;
     }
 
-    let geo = get_geometry_params_from_json(adj);
-    if !is_geometry_identity(&geo) {
+    if has_lens_selection(adj) || !is_geometry_identity(&user_geometry_params(adj)) {
         return true;
     }
 
@@ -2576,6 +2308,24 @@ pub fn active_tools(adjustments: &serde_json::Value) -> serde_json::Map<String, 
             .map(|tool| (tool.to_string(), json!(is_tool_active(adjustments, tool))))
             .collect(),
     }
+}
+
+/// Perceptual contrast pivot. Masks use 0 as "share the global middle-gray curve".
+/// A mask pivot above 0 is applied after global contrast, with the amount scaled by mask influence.
+fn contrast_pivot_uniform(adj: &serde_json::Value, mask: bool) -> f32 {
+    let adaptive = is_tool_active(adj, "basic")
+        && adj
+            .get("contrastAdaptive")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+    if !adaptive {
+        return if mask { 0.0 } else { 0.5 };
+    }
+    let pivot = adj
+        .get("contrastPivot")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(128.0) as f32;
+    (pivot / 255.0).clamp(16.0 / 255.0, 239.0 / 255.0)
 }
 
 pub fn is_effect_enabled(adjustments: &serde_json::Value, tool: &str, enabled_key: &str) -> bool {
@@ -2880,7 +2630,7 @@ fn get_global_adjustments_from_json(
         red_curve_count: red_points.len() as u32,
         green_curve_count: green_points.len() as u32,
         blue_curve_count: blue_points.len() as u32,
-        _pad_end1: 0.0,
+        contrast_pivot: contrast_pivot_uniform(js_adjustments, false),
         _pad_end2: 0.0,
         _pad_end3: 0.0,
         _pad_end4: 0.0,
@@ -3003,7 +2753,7 @@ fn get_mask_adjustments_from_json(
         wb_log_gain_l,
         wb_log_gain_m,
         wb_log_gain_s,
-        _pad_wb: 0.0,
+        contrast_pivot: contrast_pivot_uniform(adj, true),
         color_grading_shadows: if color_grading_visible {
             parse_color_grade_settings(&cg_obj["shadows"])
         } else {
@@ -3132,6 +2882,7 @@ pub struct GpuContext {
     pub display: Arc<std::sync::Mutex<Option<WgpuDisplay>>>,
     pub viewer_display: Arc<std::sync::Mutex<Option<WgpuDisplay>>>,
     pub pipelines: Arc<OnceLock<Arc<GpuPipelines>>>,
+    pub compute: Arc<OnceLock<crate::gpu_compute::ComputePipelines>>,
 }
 
 impl GpuContext {
@@ -3800,11 +3551,51 @@ fn apply_gentle_detail_enhance(buffer: &mut Rgb32FImage, q: &[f32], amount: f32)
     );
 }
 
+pub struct MaskToneSample {
+    id: String,
+    red: Vec<f32>,
+    green: Vec<f32>,
+    blue: Vec<f32>,
+    luma: Vec<f32>,
+    luma_q25: u8,
+    luma_median: u8,
+    luma_q75: u8,
+}
+
 pub struct HistogramData {
     red: Vec<f32>,
     green: Vec<f32>,
     blue: Vec<f32>,
     luma: Vec<f32>,
+    luma_median: u8,
+    luma_q25: u8,
+    luma_q75: u8,
+    mask: Option<MaskToneSample>,
+}
+
+fn histogram_median(counts: &[u32; 256]) -> u8 {
+    let total: u64 = counts.iter().map(|count| *count as u64).sum();
+    histogram_pick(total, (total + 1) / 2, counts.iter().copied())
+}
+
+fn histogram_quantile(counts: &[u64; 256], fraction: f64) -> u8 {
+    let total: u64 = counts.iter().sum();
+    let target = ((total as f64) * fraction).ceil().max(1.0) as u64;
+    histogram_pick(total, target, counts.iter().copied())
+}
+
+fn histogram_pick(total: u64, target: u64, counts: impl IntoIterator<Item = impl Into<u64>>) -> u8 {
+    if total == 0 {
+        return 128;
+    }
+    let mut cumulative = 0u64;
+    for (bin, count) in counts.into_iter().enumerate() {
+        cumulative += count.into();
+        if cumulative >= target {
+            return bin as u8;
+        }
+    }
+    255
 }
 
 pub enum AnalyticsPixels {
@@ -3839,7 +3630,60 @@ impl AnalyticsFrame {
     }
 }
 
-pub fn calculate_histogram(frame: &AnalyticsFrame) -> Result<HistogramData, String> {
+fn weighted_histogram(frame: &AnalyticsFrame, mask: &GrayImage) -> Option<[[u64; 256]; 4]> {
+    if mask.width() != frame.width || mask.height() != frame.height {
+        return None;
+    }
+
+    let width = frame.width as usize;
+    let pixels = mask.as_raw();
+    let empty = || [[0u64; 256]; 4];
+    let counts = (0..frame.height as usize)
+        .into_par_iter()
+        .with_min_len(16)
+        .fold(empty, |mut acc, y| {
+            let first = (y * width) & 1;
+            let row = &pixels[y * width..(y + 1) * width];
+            for (x, px) in frame.row(y).iter().enumerate().skip(first).step_by(2) {
+                let weight = row[x] as u64;
+                if weight == 0 {
+                    continue;
+                }
+                let r = px[0] as usize;
+                let g = px[1] as usize;
+                let b = px[2] as usize;
+                acc[0][r] += weight;
+                acc[1][g] += weight;
+                acc[2][b] += weight;
+                let luma = (r * 218 + g * 732 + b * 74) >> 10;
+                acc[3][luma.min(255)] += weight;
+            }
+            acc
+        })
+        .reduce(empty, |mut a, b| {
+            for (a_channel, b_channel) in a.iter_mut().zip(b.iter()) {
+                for (a_bin, b_bin) in a_channel.iter_mut().zip(b_channel.iter()) {
+                    *a_bin += *b_bin;
+                }
+            }
+            a
+        });
+
+    let total: u64 = counts[3].iter().sum();
+    (total > 0).then_some(counts)
+}
+
+fn smoothed_histogram(counts: &[u64; 256]) -> Vec<f32> {
+    let mut values = counts.map(|count| count as f32).to_vec();
+    apply_gaussian_smoothing(&mut values, 2.0);
+    normalize_histogram_range(&mut values, 0.99);
+    values
+}
+
+pub fn calculate_histogram(
+    frame: &AnalyticsFrame,
+    mask: Option<(&str, &GrayImage)>,
+) -> Result<HistogramData, String> {
     let width = frame.width as usize;
     let empty = || [[0u32; 256]; 4];
 
@@ -3871,6 +3715,10 @@ pub fn calculate_histogram(frame: &AnalyticsFrame) -> Result<HistogramData, Stri
             a
         });
 
+    let luma_median = histogram_median(&counts[3]);
+    let luma_counts = counts[3].map(|count| count as u64);
+    let luma_q25 = histogram_quantile(&luma_counts, 0.25);
+    let luma_q75 = histogram_quantile(&luma_counts, 0.75);
     let [mut red, mut green, mut blue, mut luma] =
         counts.map(|channel| channel.map(|c| c as f32).to_vec());
 
@@ -3885,11 +3733,32 @@ pub fn calculate_histogram(frame: &AnalyticsFrame) -> Result<HistogramData, Stri
     normalize_histogram_range(&mut blue, 0.99);
     normalize_histogram_range(&mut luma, 0.99);
 
+    let mask = mask.and_then(|(id, bitmap)| {
+        let counts = weighted_histogram(frame, bitmap)?;
+        let luma_q25 = histogram_quantile(&counts[3], 0.25);
+        let luma_median = histogram_quantile(&counts[3], 0.5);
+        let luma_q75 = histogram_quantile(&counts[3], 0.75);
+        Some(MaskToneSample {
+            id: id.to_string(),
+            red: smoothed_histogram(&counts[0]),
+            green: smoothed_histogram(&counts[1]),
+            blue: smoothed_histogram(&counts[2]),
+            luma: smoothed_histogram(&counts[3]),
+            luma_q25,
+            luma_median,
+            luma_q75,
+        })
+    });
+
     Ok(HistogramData {
         red,
         green,
         blue,
         luma,
+        luma_median,
+        luma_q25,
+        luma_q75,
+        mask,
     })
 }
 
@@ -3990,8 +3859,30 @@ pub fn encode_analytics_packet(
                     out.extend_from_slice(&v.to_le_bytes());
                 }
             }
+            put_u32(&mut out, h.luma_median as usize);
+            put_u32(&mut out, h.luma_q25 as usize);
+            put_u32(&mut out, h.luma_q75 as usize);
+            match &h.mask {
+                Some(mask) => {
+                    put_u32(&mut out, mask.id.len());
+                    out.extend_from_slice(mask.id.as_bytes());
+                    put_u32(&mut out, mask.red.len());
+                    for channel in [&mask.red, &mask.green, &mask.blue, &mask.luma] {
+                        for value in channel {
+                            out.extend_from_slice(&value.to_le_bytes());
+                        }
+                    }
+                    put_u32(&mut out, mask.luma_q25 as usize);
+                    put_u32(&mut out, mask.luma_median as usize);
+                    put_u32(&mut out, mask.luma_q75 as usize);
+                }
+                None => put_u32(&mut out, 0),
+            }
         }
-        None => put_u32(&mut out, 0),
+        None => {
+            put_u32(&mut out, 0);
+            put_u32(&mut out, 256);
+        }
     }
 
     match waveform {

@@ -118,6 +118,9 @@
       "whiteBalance": "Balanç de blancs"
     },
     "curves": {
+      "adaptiveContrast": "Col·locar punts",
+      "adaptiveContrastTooltip": "Col·loca l'àncora dels tons mitjans a la mediana de la imatge. Els valors dels controls es mantenen, i els rangs de tons foscos i clars conserven l'amplada habitual",
+      "anchorMedian": "Ancora a la mediana",
       "channelTitle": "Canal {{channel}}",
       "channels": {
         "blue": "Blau",
@@ -128,6 +131,7 @@
       "copyParametric": "Copiar corba paramètrica de {{channel}}",
       "copyPoint": "Copiar corba de punts de {{channel}}",
       "curveDataUnavailable": "Dades de la corba no disponibles.",
+      "median": "Mediana {{value}}",
       "parametricCurve": "Corba paramètrica",
       "params": {
         "blackLevel": "Nivell de negre",
@@ -1743,7 +1747,6 @@
       "selectManufacturer": "Seleccioneu el fabricant",
       "title": "Correcció de l'objectiu",
       "vignetting": "Vinyetatge",
-      "waitingAutoDetect": "S'està esperant l'autodetecció...",
       "zoomInTooltip": "Apropar",
       "zoomOutTooltip": "Allunyar"
     },
@@ -1972,6 +1975,11 @@
       "title": "Configuració general",
       "toolFocusMode": "Mode de concentració en eines",
       "toolFocusModeDesc": "Replega automàticament les altres eines d'un tauler quan n'amplieu una.",
+      "uiScale": "Escala de la interfície",
+      "uiScaleCompact": "Compacta",
+      "uiScaleDefault": "Per defecte",
+      "uiScaleDesc": "Fes la interfície més petita o més gran, independentment de l'escalat de pantalla del sistema. Les mides compactes aprofiten millor les pantalles petites de portàtil.",
+      "uiScaleLarge": "Gran",
       "xmpSync": "Sincronització de metadades XMP",
       "xmpSyncDesc": "Sincronitzar puntuacions, etiquetes de color i etiquetes amb fitxers sidecar XMP estàndard per a la compatibilitat amb altres editors de fotos."
     },

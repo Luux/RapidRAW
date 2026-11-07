@@ -27,12 +27,25 @@ interface InteractivePatch {
   normH: number;
 }
 
+export interface MaskToneHistogram {
+  id: string;
+  red: number[];
+  green: number[];
+  blue: number[];
+  luma: number[];
+  lumaMedian: number;
+  lumaQ25: number;
+  lumaQ75: number;
+}
+
 interface BaseRenderSize extends ImageDimensions {
   containerHeight: number;
   containerWidth: number;
   offsetX: number;
   offsetY: number;
 }
+
+export type WgpuPhase = 'hidden' | 'arming' | 'live';
 
 interface EditorState {
   // Core Image & Adjustments
@@ -56,6 +69,7 @@ interface EditorState {
 
   // Analytics
   histogram: ChannelConfig | null;
+  maskHistogram: MaskToneHistogram | null;
   waveform: WaveformData | null;
   isWaveformVisible: boolean;
   activeWaveformChannel: string;
@@ -97,7 +111,7 @@ interface EditorState {
   isGeneratingAi: boolean;
   aiDenoiseProgress: Record<string, number>;
   isAIConnectorConnected: boolean;
-  hasRenderedFirstFrame: boolean;
+  wgpuPhase: WgpuPhase;
   patchesSentToBackend: Set<string>;
 
   // Clipboard
@@ -142,6 +156,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   splitPosition: 0.5,
   originalPreview: null,
   histogram: null,
+  maskHistogram: null,
   waveform: null,
   isWaveformVisible: false,
   activeWaveformChannel: 'luma',
@@ -186,7 +201,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   isGeneratingAi: false,
   aiDenoiseProgress: {},
   isMaskControlHovered: false,
-  hasRenderedFirstFrame: false,
+  wgpuPhase: 'hidden',
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
