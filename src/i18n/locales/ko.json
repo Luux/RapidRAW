@@ -1,6 +1,8 @@
 {
   "adjustments": {
     "basic": {
+      "adaptiveContrast": "적응형 대비",
+      "adaptiveContrastTooltip": "이 슬라이더의 기준점을 이미지 중앙값으로 둡니다. 다시 클릭하면 중간 회색으로 돌아갑니다",
       "blacks": "블랙",
       "brightness": "밝기",
       "contrast": "대비",
@@ -118,6 +120,13 @@
       "whiteBalance": "화이트 밸런스"
     },
     "curves": {
+      "adaptiveContrast": "곡선 포인트 배치",
+      "adaptiveContrastImage": "이미지에서 곡선 포인트 배치",
+      "adaptiveContrastImageTooltip": "중간 톤 앵커를 이미지 중앙값에 놓고 대비 기준점도 그곳으로 옮깁니다",
+      "adaptiveContrastMask": "선택 영역에서 곡선 포인트 배치",
+      "adaptiveContrastMaskTooltip": "중간 톤 앵커를 이 선택 영역의 중앙값에 놓고 대비 기준점도 그곳으로 옮깁니다",
+      "adaptiveContrastTooltip": "중간 톤 앵커를 이미지 중앙값에 놓습니다. 슬라이더 값은 그대로 두고, 어두운 톤과 밝은 톤 범위는 기본 너비를 유지합니다",
+      "anchorMedian": "중간값에 고정",
       "channelTitle": "{{channel}} 채널",
       "channels": {
         "blue": "파랑",
@@ -128,6 +137,9 @@
       "copyParametric": "{{channel}} 파라메트릭 커브 복사",
       "copyPoint": "{{channel}} 포인트 커브 복사",
       "curveDataUnavailable": "커브 데이터를 사용할 수 없습니다.",
+      "maskLocalTone": "선택 영역 중앙값",
+      "maskLocalToneTooltip": "대비 기준점을 이 선택 영역의 중앙값으로 둡니다. 다시 클릭하면 중간 회색으로 돌아갑니다",
+      "median": "중간값 {{value}}",
       "parametricCurve": "파라메트릭 커브",
       "params": {
         "blackLevel": "블랙 레벨",
@@ -960,6 +972,9 @@
   "export": {
     "advanced": {
       "exportMasks": "마스크를 별도 파일로 내보내기",
+      "exportOriginal": "원본도 내보내기",
+      "originalCrop": "자르기 적용",
+      "originalKeepExposure": "노출 유지",
       "preserveFolders": "폴더 구조 유지",
       "preserveTimestamps": "EXIF 촬영 날짜로 파일 타임스탬프 설정",
       "title": "내보내기 설정"
@@ -1701,7 +1716,6 @@
       "selectManufacturer": "제조사 선택",
       "title": "렌즈 보정",
       "vignetting": "비네팅",
-      "waitingAutoDetect": "자동 감지 대기 중...",
       "zoomInTooltip": "확대",
       "zoomOutTooltip": "축소"
     },
@@ -1925,6 +1939,11 @@
       "title": "일반 설정",
       "toolFocusMode": "도구 집중 모드",
       "toolFocusModeDesc": "도구를 펼치면 같은 패널의 다른 도구를 자동으로 접습니다.",
+      "uiScale": "인터페이스 배율",
+      "uiScaleCompact": "컴팩트",
+      "uiScaleDefault": "기본값",
+      "uiScaleDesc": "시스템 디스플레이 배율과 관계없이 인터페이스를 작게 또는 크게 만듭니다. 컴팩트 크기는 작은 노트북 화면에 더 많은 내용을 표시합니다.",
+      "uiScaleLarge": "크게",
       "xmpSync": "XMP 메타데이터 동기화",
       "xmpSyncDesc": "다른 사진 편집기와의 호환성을 위해 평점, 색상 레이블, 태그를 표준 XMP 사이드카 파일에 동기화합니다."
     },
@@ -2194,8 +2213,6 @@
       "smallThumbnailRes": "그리드 썸네일 해상도",
       "smallThumbnailResDesc": "라이브러리 그리드에 표시되는 썸네일의 해상도입니다.",
       "staticDesc": "편집기가 고정된 해상도로 이미지를 렌더링합니다. 이 모드는 가장 빠르고 일관성이 있어, 픽셀 단위 정밀 확대보다 부드러운 성능이 우선시되는 저사양 하드웨어에 이상적입니다.",
-      "staticPreviewRes": "정적 미리보기 해상도",
-      "staticPreviewResDesc": "자르기 모드, 렌즈 보정, 원근 도구 등 정적 미리보기의 해상도를 설정합니다. 메인 편집기 미리보기에는 영향을 주지 않습니다.",
       "threads": "스레드",
       "thumbnailRes": "썸네일 해상도",
       "thumbnailResDesc": "생성되는 라이브러리 썸네일의 해상도를 결정합니다. 값이 높을수록 로딩 중 더 선명한 이미지를 제공합니다.",

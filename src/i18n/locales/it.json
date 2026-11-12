@@ -1,6 +1,8 @@
 {
   "adjustments": {
     "basic": {
+      "adaptiveContrast": "Contrasto adattivo",
+      "adaptiveContrastTooltip": "Ruota questo cursore sulla mediana dell'immagine. Fai di nuovo clic per il grigio medio",
       "blacks": "Neri",
       "brightness": "Luminosità",
       "contrast": "Contrasto",
@@ -118,6 +120,13 @@
       "whiteBalance": "Bilanciamento del Bianco"
     },
     "curves": {
+      "adaptiveContrast": "Imposta punti curva",
+      "adaptiveContrastImage": "Imposta punti curva dall'immagine",
+      "adaptiveContrastImageTooltip": "Posiziona l'ancora dei mezzitoni sulla mediana dell'immagine e vi ruota il contrasto",
+      "adaptiveContrastMask": "Imposta punti curva dalla selezione",
+      "adaptiveContrastMaskTooltip": "Posiziona l'ancora dei mezzitoni sulla mediana di questa selezione e vi ruota il contrasto",
+      "adaptiveContrastTooltip": "Posiziona l'ancora dei mezzitoni sulla mediana dell'immagine. I valori dei cursori restano invariati e gli intervalli dei toni scuri e chiari mantengono la larghezza abituale",
+      "anchorMedian": "Ancora alla mediana",
       "channelTitle": "Canale {{channel}}",
       "channels": {
         "blue": "Blu",
@@ -128,6 +137,9 @@
       "copyParametric": "Copia Curva Parametrica {{channel}}",
       "copyPoint": "Copia Curva per Punti {{channel}}",
       "curveDataUnavailable": "Dati curva non disponibili.",
+      "maskLocalTone": "Mediana della selezione",
+      "maskLocalToneTooltip": "Ruota il contrasto sulla mediana di questa selezione. Fai di nuovo clic per il grigio medio",
+      "median": "Mediana {{value}}",
       "parametricCurve": "Curva Parametrica",
       "params": {
         "blackLevel": "Livello del Nero",
@@ -987,6 +999,9 @@
   "export": {
     "advanced": {
       "exportMasks": "Esporta maschere come file separati",
+      "exportOriginal": "Esporta anche l'originale",
+      "originalCrop": "Applica ritaglio",
+      "originalKeepExposure": "Mantieni esposizione",
       "preserveFolders": "Mantieni Struttura Cartelle",
       "preserveTimestamps": "Imposta Timestamp File dalla Data di Acquisizione EXIF",
       "title": "Impostazioni di Esportazione"
@@ -1743,7 +1758,6 @@
       "selectManufacturer": "Seleziona Produttore",
       "title": "Correzione Obiettivo",
       "vignetting": "Vignettatura",
-      "waitingAutoDetect": "In attesa del Rilevamento Automatico...",
       "zoomInTooltip": "Ingrandisci",
       "zoomOutTooltip": "Riduci"
     },
@@ -1972,6 +1986,11 @@
       "title": "Impostazioni Generali",
       "toolFocusMode": "Modalità Focus Strumenti",
       "toolFocusModeDesc": "Comprime automaticamente gli altri strumenti di un pannello quando ne espandi uno.",
+      "uiScale": "Scala dell'interfaccia",
+      "uiScaleCompact": "Compatta",
+      "uiScaleDefault": "Predefinita",
+      "uiScaleDesc": "Rimpicciolisci o ingrandisci l'interfaccia, indipendentemente dal ridimensionamento dello schermo del sistema. Le dimensioni compatte mostrano più contenuti sugli schermi piccoli dei portatili.",
+      "uiScaleLarge": "Grande",
       "xmpSync": "Sincronizzazione Metadati XMP",
       "xmpSyncDesc": "Sincronizza valutazioni, etichette colore e tag nei file sidecar XMP standard per la compatibilità con altri editor fotografici."
     },
@@ -2241,8 +2260,6 @@
       "smallThumbnailRes": "Risoluzione delle miniature della griglia",
       "smallThumbnailResDesc": "Risoluzione delle miniature mostrate nella griglia della libreria.",
       "staticDesc": "L'editor renderizza l'immagine a una risoluzione fissa. Questa modalità è la più veloce e coerente, rendendola ideale per hardware meno potenti dove si privilegia una prestazione fluida rispetto a uno zoom perfetto al pixel.",
-      "staticPreviewRes": "Risoluzione Anteprima Statica",
-      "staticPreviewResDesc": "Imposta la risoluzione per le anteprime statiche come la modalità ritaglio, la correzione obiettivo e gli strumenti di prospettiva. Non influisce sull'anteprima principale dell'editor.",
       "threads": "Thread",
       "thumbnailRes": "Risoluzione Miniatura",
       "thumbnailResDesc": "Determina la risoluzione delle miniature della libreria generate. Valori più alti producono immagini più nitide durante il caricamento.",
