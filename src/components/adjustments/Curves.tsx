@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { RotateCcw, Copy, ClipboardPaste, Spline, Settings2 } from 'lucide-react';
+import { Contrast, Copy, ClipboardPaste, Crosshair, RotateCcw, Scan, Settings2, Spline } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import {
   ActiveChannel,
@@ -10,35 +10,32 @@ import {
   DEFAULT_PARAMETRIC_CURVE_SETTINGS,
   ParametricCurveSettings,
   getDefaultCurves,
+  areSectionPropsEqual,
 } from '../../utils/adjustments';
-import { Theme, OPTION_SEPARATOR } from '../ui/AppProperties';
+import { Theme } from '../../types/settings';
+import { OPTION_SEPARATOR } from '../../types/ui';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import Text from '../ui/Text';
 import Slider from '../ui/Slider';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
-import { areSectionPropsEqual } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
+import { FINE_ADJUSTMENT_MULTIPLIER, hasFineAdjustmentModifier } from '../../utils/fineAdjustment';
+import {
+  contrastFulcrum,
+  isIdentityCurve,
+  medianAnchorPoints,
+  medianBandPoints,
+  medianBandSplits,
+  toneMedian,
+} from '../../utils/adaptiveContrast';
 
 let curveClipboard: Array<Coord> | null = null;
 let parametricClipboard: any = null;
 
-export interface ChannelConfig {
-  [index: string]: ColorData;
-  [ActiveChannel.Luma]: ColorData;
-  [ActiveChannel.Red]: ColorData;
-  [ActiveChannel.Green]: ColorData;
-  [ActiveChannel.Blue]: ColorData;
-}
-
-interface ColorData {
-  color: string;
-  data: any;
-}
-
 interface CurveGraphProps {
   adjustments: Adjustments | any;
   isForMask?: boolean;
-  setAdjustments(updater: (prev: any) => any): void;
+  setAdjustments(updater: (prev: any) => any, label?: string): void;
   theme: string;
   onDragStateChange?: (isDragging: boolean) => void;
 }
@@ -202,8 +199,15 @@ function getZeroHistogramPath(data: Array<any>) {
   return `M0,255 L${pathData} L255,255 Z`;
 }
 
-const HistogramFill = memo(({ channel, opacity }: { channel: ActiveChannel; opacity: number }) => {
-  const data: number[] | undefined = useEditorStore((state) => state.histogram?.[channel]) as any;
+const HistogramFill = memo(({ channel, opacity, isForMask = false }: { channel: ActiveChannel; opacity: number; isForMask?: boolean }) => {
+  const data: number[] | undefined = useEditorStore((state) => {
+    if (isForMask) {
+      const mask = state.maskHistogram;
+      if (!mask || mask.id !== state.activeMaskContainerId) return undefined;
+      return mask[channel];
+    }
+    return state.histogram?.[channel];
+  }) as any;
   const histogramPath = useMemo(() => getHistogramPath(data ?? []), [data]);
   const zeroHistogramPath = useMemo(() => getZeroHistogramPath(data ?? []), [data]);
 
@@ -270,16 +274,38 @@ function convertParametricToPoints(settings: ParametricCurveSettings): Array<Coo
   return buildParametricPoints(settings);
 }
 
-const FINE_ADJUSTMENT_MULTIPLIER = 0.2;
 const POINT_HIT_RADIUS_PX = 12;
 const MIN_POINT_GAP_X = 1;
 
-const hasFineAdjustmentModifier = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent) =>
-  'shiftKey' in event && (event.shiftKey || event.altKey);
-
-function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: CurveGraphProps) {
+function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange, isForMask = false }: CurveGraphProps) {
   const { t } = useTranslation();
   const { showContextMenu } = useContextMenu();
+  const imagePath = useEditorStore((state) => state.selectedImage?.path ?? null);
+  const activeMaskContainerId = useEditorStore((state) => state.activeMaskContainerId);
+  const imageMedian = useEditorStore((state) => toneMedian((state.histogram as { lumaMedian?: number } | null)?.lumaMedian));
+  const maskMedian = useEditorStore((state) => {
+    if (!isForMask) return null;
+    const histogram = state.maskHistogram;
+    if (!histogram || histogram.id !== state.activeMaskContainerId) return null;
+    return toneMedian(histogram.lumaMedian);
+  });
+  const shownSource = isForMask ? maskMedian : imageMedian;
+  const medianKey = `${imagePath ?? ''}|${isForMask ? (activeMaskContainerId ?? '') : 'global'}`;
+  const baselineMedianRef = useRef<{ key: string | null; value: number | null }>({ key: null, value: null });
+  const renderedLuma = adjustments?.curves?.[ActiveChannel.Luma] as Array<Coord> | undefined;
+  if (baselineMedianRef.current.key !== medianKey) {
+    baselineMedianRef.current = { key: medianKey, value: null };
+  }
+  if (shownSource != null && isIdentityCurve(renderedLuma)) {
+    baselineMedianRef.current.value = shownSource;
+  }
+  const shownMedian =
+    shownSource == null
+      ? null
+      : isIdentityCurve(renderedLuma)
+        ? shownSource
+        : (baselineMedianRef.current.value ?? shownSource);
+  const displayFulcrum = shownMedian == null ? null : contrastFulcrum(shownMedian);
   const [curveMode, setCurveMode] = useState<'point' | 'parametric'>(adjustments.curveMode || 'point');
   const [activeChannel, setActiveChannel] = useState<ActiveChannel>(ActiveChannel.Luma);
   const [draggingPointIndex, setDraggingPointIndex] = useState<number | null>(null);
@@ -622,6 +648,90 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
     }
   };
 
+  const writeLumaParametric = (settings: ParametricCurveSettings, label: string) => {
+    setActiveChannel(ActiveChannel.Luma);
+    setLocalParametricSettings(settings);
+    localParametricSettingsRef.current = settings;
+    setAdjustments((prev: any) => {
+      const parametric = prev.parametricCurve || DEFAULT_PARAMETRIC_CURVE;
+      return {
+        ...prev,
+        parametricCurve: { ...parametric, [ActiveChannel.Luma]: settings },
+        curves: { ...prev.curves, [ActiveChannel.Luma]: buildParametricPoints(settings) },
+      };
+    }, label);
+  };
+
+  const writeLumaPoints = (points: Array<Coord>, label: string) => {
+    const nextPoints = points.map((point) => ({ ...point }));
+    setActiveChannel(ActiveChannel.Luma);
+    setLocalPoints(nextPoints);
+    localPointsRef.current = nextPoints;
+    setAdjustments((prev: any) => ({
+      ...prev,
+      curves: { ...prev.curves, [ActiveChannel.Luma]: nextPoints },
+    }), label);
+  };
+
+  const placeBand = (median: number, label: string) => {
+    if (isParametricMode) {
+      const current = parametricCurves[ActiveChannel.Luma] || DEFAULT_PARAMETRIC_CURVE_SETTINGS;
+      writeLumaParametric({ ...current, ...medianBandSplits(median) }, label);
+      return;
+    }
+    writeLumaPoints(medianBandPoints(median), label);
+  };
+
+  const imageBandMedian = isForMask ? imageMedian : shownMedian;
+
+  const placeImageBand = () => {
+    if (imageBandMedian == null) return;
+    placeBand(imageBandMedian, t(isForMask ? 'adjustments.curves.adaptiveContrastImage' : 'adjustments.curves.adaptiveContrast'));
+  };
+
+  const placeSelectionBand = () => {
+    if (shownMedian == null) return;
+    placeBand(shownMedian, t('adjustments.curves.adaptiveContrastMask'));
+  };
+
+  const placeAnchor = () => {
+    if (shownMedian == null) return;
+    writeLumaPoints(medianAnchorPoints(shownMedian), t('adjustments.curves.anchorMedian'));
+  };
+
+  const medianMenuItems =
+    activeChannel === ActiveChannel.Luma
+      ? [
+          {
+            label: t(isForMask ? 'adjustments.curves.adaptiveContrastImage' : 'adjustments.curves.adaptiveContrast'),
+            icon: Contrast,
+            onClick: placeImageBand,
+            disabled: imageBandMedian == null,
+          },
+          ...(isForMask
+            ? [
+                {
+                  label: t('adjustments.curves.adaptiveContrastMask'),
+                  icon: Scan,
+                  onClick: placeSelectionBand,
+                  disabled: shownMedian == null,
+                },
+              ]
+            : []),
+          ...(!isParametricMode
+            ? [
+                {
+                  label: t('adjustments.curves.anchorMedian'),
+                  icon: Crosshair,
+                  onClick: placeAnchor,
+                  disabled: shownMedian == null,
+                },
+              ]
+            : []),
+          { type: OPTION_SEPARATOR },
+        ]
+      : [];
+
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -686,6 +796,7 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
       );
 
       const options = [
+        ...medianMenuItems,
         {
           label: t('adjustments.curves.copyParametric', { channel: channelLabel }),
           icon: Copy,
@@ -768,6 +879,7 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
     const areOtherPointCurvesDirty = inactiveChannels.some((channel) => !isDefaultCurve(adjustments.curves?.[channel]));
 
     const options = [
+      ...medianMenuItems,
       {
         label: t('adjustments.curves.copyPoint', { channel: channelLabel }),
         icon: Copy,
@@ -901,7 +1013,24 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
               stroke="rgba(255,255,255,0.1)"
               strokeWidth="0.5"
             />
-            <HistogramFill channel={activeChannel} opacity={histogramOpacity} />
+            <HistogramFill channel={activeChannel} opacity={histogramOpacity} isForMask={isForMask} />
+            {activeChannel === ActiveChannel.Luma && displayFulcrum != null && (
+              <g
+                aria-label={t('adjustments.curves.median', { value: Math.round(displayFulcrum) })}
+                className="text-accent"
+                pointerEvents="none"
+              >
+                <line
+                  x1={displayFulcrum}
+                  y1={0}
+                  x2={displayFulcrum}
+                  y2={255}
+                  stroke="currentColor"
+                  strokeDasharray="3 3"
+                  strokeWidth="1"
+                />
+              </g>
+            )}
             <line
               x1="0"
               y1="255"
@@ -1041,6 +1170,34 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                     ))}
                   </div>
                 </div>
+                {activeChannel === ActiveChannel.Luma && (
+                  <div className="mt-2 flex items-center justify-center gap-1">
+                    <button
+                      className="w-7 h-7 rounded-md border border-white/25 bg-card-active text-text-primary flex items-center justify-center transition-colors hover:border-white/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-tooltip={t(
+                        isForMask
+                          ? 'adjustments.curves.adaptiveContrastImageTooltip'
+                          : 'adjustments.curves.adaptiveContrastTooltip',
+                      )}
+                      disabled={imageBandMedian == null}
+                      onClick={placeImageBand}
+                      type="button"
+                    >
+                      <Contrast size={14} />
+                    </button>
+                    {isForMask && (
+                      <button
+                        className="w-7 h-7 rounded-md border border-white/25 bg-card-active text-text-primary flex items-center justify-center transition-colors hover:border-white/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                        data-tooltip={t('adjustments.curves.adaptiveContrastMaskTooltip')}
+                        disabled={shownMedian == null}
+                        onClick={placeSelectionBand}
+                        type="button"
+                      >
+                        <Scan size={14} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex flex-col gap-2">
@@ -1051,6 +1208,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={0}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.whiteLevel`}
+
                   value={activeParametricSettings.whiteLevel}
                   onChange={(e: any) => updateParametricValue('whiteLevel', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}
@@ -1062,6 +1221,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={100}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.highlights`}
+
                   value={activeParametricSettings.highlights}
                   onChange={(e: any) => updateParametricValue('highlights', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}
@@ -1073,6 +1234,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={100}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.lights`}
+
                   value={activeParametricSettings.lights}
                   onChange={(e: any) => updateParametricValue('lights', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}
@@ -1084,6 +1247,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={100}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.darks`}
+
                   value={activeParametricSettings.darks}
                   onChange={(e: any) => updateParametricValue('darks', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}
@@ -1095,6 +1260,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={100}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.shadows`}
+
                   value={activeParametricSettings.shadows}
                   onChange={(e: any) => updateParametricValue('shadows', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}
@@ -1106,6 +1273,8 @@ function CurveGraph({ adjustments, setAdjustments, theme, onDragStateChange }: C
                   max={100}
                   step={1}
                   defaultValue={0}
+                  resetKey={`parametricCurve.${activeChannel}.blackLevel`}
+
                   value={activeParametricSettings.blackLevel}
                   onChange={(e: any) => updateParametricValue('blackLevel', parseFloat(e.target.value))}
                   onDragStateChange={onDragStateChange}

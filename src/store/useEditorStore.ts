@@ -1,21 +1,21 @@
 import { RefObject } from 'react';
 import { create } from 'zustand';
+import debounce from 'lodash.debounce';
+import { Adjustments, INITIAL_ADJUSTMENTS, MaskContainer, CropGeometry, pickCropGeometry } from '../utils/adjustments';
 import {
-  Adjustments,
-  INITIAL_ADJUSTMENTS,
-  MaskContainer,
-  AiPatch,
-  CropGeometry,
-  pickCropGeometry,
-} from '../utils/adjustments';
-import { SelectedImage, WaveformData, BrushSettings, CompareView } from '../components/ui/AppProperties';
-import { ChannelConfig } from '../components/adjustments/Curves';
+  SelectedImage,
+  WaveformData,
+  BrushSettings,
+  ChannelConfig,
+  OverlayMode,
+  type SpeedEditTarget,
+  type ImageDefaults,
+} from '../types/editor';
+import { CompareView } from '../types/settings';
 import { ImageDimensions } from '../hooks/useImageRenderSize';
-import { ToolType } from '../components/panel/right/Masks';
-import { OverlayMode } from '../components/panel/right/CropPanel';
+import { ToolType } from '../types/masks';
 import { describeHistoryChange } from '../utils/editHistory';
 import { HslMixerProperty } from '../utils/hslMixer';
-import type { SpeedEditTarget } from '../components/ui/Slider';
 
 export type CenterMarker = 'vignette' | 'centre';
 
@@ -27,12 +27,23 @@ interface InteractivePatch {
   normH: number;
 }
 
+export interface MaskToneHistogram {
+  id: string;
+  red: number[];
+  green: number[];
+  blue: number[];
+  luma: number[];
+  lumaMedian: number;
+}
+
 interface BaseRenderSize extends ImageDimensions {
   containerHeight: number;
   containerWidth: number;
   offsetX: number;
   offsetY: number;
 }
+
+export type WgpuPhase = 'hidden' | 'arming' | 'live';
 
 interface EditorState {
   // Core Image & Adjustments
@@ -56,6 +67,7 @@ interface EditorState {
 
   // Analytics
   histogram: ChannelConfig | null;
+  maskHistogram: MaskToneHistogram | null;
   waveform: WaveformData | null;
   isWaveformVisible: boolean;
   activeWaveformChannel: string;
@@ -67,7 +79,6 @@ interface EditorState {
   isSpeedEditActive: boolean;
   zoom: number;
   displaySize: ImageDimensions;
-  previewSize: ImageDimensions;
   baseRenderSize: BaseRenderSize;
   originalSize: ImageDimensions;
 
@@ -96,14 +107,17 @@ interface EditorState {
   isGeneratingAiMask: boolean;
   isGeneratingAi: boolean;
   aiDenoiseProgress: Record<string, number>;
+  aiUpscaleProgress: Record<string, number>;
   isAIConnectorConnected: boolean;
-  hasRenderedFirstFrame: boolean;
+  wgpuPhase: WgpuPhase;
   patchesSentToBackend: Set<string>;
 
   // Clipboard
   copiedSectionAdjustments: any | null;
   copiedMask: MaskContainer | null;
   copiedAdjustments: Adjustments | null;
+  copiedAdjustmentsDefaults: Adjustments | null;
+  imageDefaults: ImageDefaults | null;
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
@@ -113,6 +127,10 @@ interface EditorState {
   resetHistory: (initialState: Adjustments) => void;
   goToHistoryIndex: (index: number) => void;
 }
+
+export const debouncedSetHistory = debounce((newAdj: Adjustments, label?: string) => {
+  useEditorStore.getState().pushHistory(newAdj, label);
+}, 500);
 
 type CanvasToolState = Pick<
   EditorState,
@@ -142,6 +160,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   splitPosition: 0.5,
   originalPreview: null,
   histogram: null,
+  maskHistogram: null,
   waveform: null,
   isWaveformVisible: false,
   activeWaveformChannel: 'luma',
@@ -158,7 +177,6 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   zoom: 1,
   displaySize: { width: 0, height: 0 },
-  previewSize: { width: 0, height: 0 },
   baseRenderSize: { width: 0, height: 0, offsetX: 0, offsetY: 0, containerWidth: 0, containerHeight: 0 },
   originalSize: { width: 0, height: 0 },
 
@@ -180,13 +198,16 @@ export const useEditorStore = create<EditorState>((set) => ({
   copiedMask: null,
   brushSettings: { size: 100, feather: 50, tool: ToolType.Brush },
   copiedAdjustments: null,
+  copiedAdjustmentsDefaults: null,
+  imageDefaults: null,
 
   isGeneratingAiMask: false,
   isAIConnectorConnected: false,
   isGeneratingAi: false,
   aiDenoiseProgress: {},
+  aiUpscaleProgress: {},
   isMaskControlHovered: false,
-  hasRenderedFirstFrame: false,
+  wgpuPhase: 'hidden',
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
@@ -204,23 +225,27 @@ export const useEditorStore = create<EditorState>((set) => ({
       return { history: newHistory, historyLabels: newLabels, historyIndex: newHistory.length - 1 };
     }),
 
-  undo: () =>
+  undo: () => {
+    debouncedSetHistory.flush();
     set((state) => {
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
-    }),
+    });
+  },
 
-  redo: () =>
+  redo: () => {
+    debouncedSetHistory.flush();
     set((state) => {
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
-    }),
+    });
+  },
 
   resetHistory: (initialState) =>
     set((state) => ({
@@ -238,11 +263,13 @@ export const useEditorStore = create<EditorState>((set) => ({
         : {}),
     })),
 
-  goToHistoryIndex: (index) =>
+  goToHistoryIndex: (index) => {
+    debouncedSetHistory.flush();
     set((state) => {
       if (index >= 0 && index < state.history.length) {
         return { historyIndex: index, adjustments: state.history[index] };
       }
       return state;
-    }),
+    });
+  },
 }));

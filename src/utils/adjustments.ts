@@ -1,9 +1,10 @@
 import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
-import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
-import type { AdjustmentLayout, AppSettings } from '../components/ui/AppProperties';
+import { SubMask, SubMaskMode } from '../types/masks';
+import type { AdjustmentLayout, AppSettings } from '../types/settings';
 import type { WhiteBalance } from './whiteBalance';
 import defaultAdjustments from './defaultAdjustments.json';
+import type { ParseKeys } from 'i18next';
 
 export enum ActiveChannel {
   Blue = 'blue',
@@ -84,6 +85,8 @@ export enum DetailsAdjustment {
   AiDenoiseDetail = 'aiDenoiseDetail',
   AiDenoiseEnabled = 'aiDenoiseEnabled',
   AiDenoiseMethod = 'aiDenoiseMethod',
+  AiUpscaleDetail = 'aiUpscaleDetail',
+  AiUpscaleEnabled = 'aiUpscaleEnabled',
   Clarity = 'clarity',
   Dehaze = 'dehaze',
   Structure = 'structure',
@@ -288,6 +291,8 @@ export interface Adjustments {
   aiDenoiseEnabled: boolean;
   aiDenoiseMethod: DenoiseMethod;
   aiPatches: Array<AiPatch>;
+  aiUpscaleDetail: number;
+  aiUpscaleEnabled: boolean;
   aspectRatio: number | null;
   baselineExposure: boolean;
   blacks: number;
@@ -363,17 +368,6 @@ export interface Adjustments {
   lensDistortionEnabled: boolean;
   lensTcaEnabled: boolean;
   lensVignetteEnabled: boolean;
-  lensDistortionParams: {
-    k1: number;
-    k2: number;
-    k3: number;
-    model: number;
-    tca_vr: number;
-    tca_vb: number;
-    vig_k1: number;
-    vig_k2: number;
-    vig_k3: number;
-  } | null;
   lensMaker: string | null;
   lensModel: string | null;
   lumaNoiseReduction: number;
@@ -522,6 +516,8 @@ export interface MaskAdjustments {
   colorGrading: ColorGradingProps;
   colorNoiseReduction: number;
   contrast: number;
+  maskLocalTone?: boolean;
+  contrastPivot?: number;
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
@@ -640,6 +636,8 @@ export const INITIAL_MASK_ADJUSTMENTS: MaskAdjustments = {
   colorGrading: { ...INITIAL_COLOR_GRADING },
   colorNoiseReduction: 0,
   contrast: 0,
+  maskLocalTone: false,
+  contrastPivot: 128,
   curves: getDefaultCurves(),
   pointCurves: getDefaultCurves(),
   parametricCurve: getDefaultParametricCurve(),
@@ -861,7 +859,6 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments): any 
     lensDistortionEnabled: loadedAdjustments.lensDistortionEnabled ?? INITIAL_ADJUSTMENTS.lensDistortionEnabled,
     lensTcaEnabled: loadedAdjustments.lensTcaEnabled ?? INITIAL_ADJUSTMENTS.lensTcaEnabled,
     lensVignetteEnabled: loadedAdjustments.lensVignetteEnabled ?? INITIAL_ADJUSTMENTS.lensVignetteEnabled,
-    lensDistortionParams: loadedAdjustments.lensDistortionParams ?? INITIAL_ADJUSTMENTS.lensDistortionParams,
     transformDistortion: loadedAdjustments.transformDistortion ?? INITIAL_ADJUSTMENTS.transformDistortion,
     transformVertical: loadedAdjustments.transformVertical ?? INITIAL_ADJUSTMENTS.transformVertical,
     transformHorizontal: loadedAdjustments.transformHorizontal ?? INITIAL_ADJUSTMENTS.transformHorizontal,
@@ -899,7 +896,7 @@ export const MONOCHROME_ADJUSTMENT_KEYS = [
 ] as const;
 
 export interface AdjustmentGroup {
-  label: string;
+  label: ParseKeys;
   keys: string[];
 }
 
@@ -907,7 +904,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
   basic: [
     { label: 'adjustments.basic.toneMapper', keys: ['toneMapper'] },
     { label: 'adjustments.basic.exposure', keys: [BasicAdjustment.Exposure] },
-    { label: 'adjustments.basic.contrast', keys: [BasicAdjustment.Contrast] },
+    {
+      label: 'adjustments.basic.contrast',
+      keys: [BasicAdjustment.Contrast, 'maskLocalTone', 'contrastPivot'],
+    },
     { label: 'adjustments.basic.highlights', keys: [BasicAdjustment.Highlights] },
     { label: 'adjustments.basic.shadows', keys: [BasicAdjustment.Shadows] },
     { label: 'adjustments.basic.whites', keys: [BasicAdjustment.Whites] },
@@ -964,6 +964,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         DetailsAdjustment.AiDenoiseAmount,
         DetailsAdjustment.AiDenoiseDetail,
       ],
+    },
+    {
+      label: 'modals.copyPaste.groups.aiUpscale',
+      keys: [DetailsAdjustment.AiUpscaleEnabled, DetailsAdjustment.AiUpscaleDetail],
     },
     {
       label: 'modals.copyPaste.groups.chromaticAberration',
@@ -1144,6 +1148,8 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     BasicAdjustment.Blacks,
     BasicAdjustment.Exposure,
     'toneMapper',
+    'maskLocalTone',
+    'contrastPivot',
   ],
   curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode'],
   color: [
@@ -1173,6 +1179,8 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     DetailsAdjustment.AiDenoiseMethod,
     DetailsAdjustment.AiDenoiseAmount,
     DetailsAdjustment.AiDenoiseDetail,
+    DetailsAdjustment.AiUpscaleEnabled,
+    DetailsAdjustment.AiUpscaleDetail,
     DetailsAdjustment.ChromaticAberrationRedCyan,
     DetailsAdjustment.ChromaticAberrationBlueYellow,
     DetailsAdjustment.NegativeConversionEnabled,
@@ -1327,15 +1335,16 @@ export const ADJUSTMENT_SECTION_TOOLS: Record<string, Array<AdjustmentSectionToo
     { id: 'sharpening', label: 'adjustments.details.sharpening' },
     { id: 'presence', label: 'adjustments.details.presence' },
     { id: 'noiseReduction', label: 'adjustments.details.noiseReduction' },
+    { id: 'superResolution', label: 'adjustments.details.superResolution' },
     { id: 'chromaticAberration', label: 'adjustments.details.chromaticAberration' },
     { id: 'negativeConversion', label: 'adjustments.details.negativeConversion' },
   ],
   effects: [
     { id: 'creative', label: 'adjustments.effects.creative' },
-    { id: 'motionBlur', label: 'adjustments.effects.motionBlur' },
     { id: 'spatial', label: 'adjustments.effects.spatial', subTools: ['lensBlur', 'relight', 'fog'] },
     { id: 'lut', label: 'adjustments.effects.lut' },
     { id: 'vignette', label: 'adjustments.effects.vignette' },
+    { id: 'motionBlur', label: 'adjustments.effects.motionBlur' },
     { id: 'grain', label: 'adjustments.effects.grain' },
   ],
 };

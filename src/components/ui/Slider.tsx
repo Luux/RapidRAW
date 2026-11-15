@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, memo, RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GLOBAL_KEYS } from './AppProperties';
+import { GLOBAL_KEYS } from '../../types/ui';
 import { useEditorStore } from '../../store/useEditorStore';
 import { SPEED_EDIT_ADJUSTMENTS } from '../../utils/adjustments';
+import { SpeedEditTarget } from '../../types/editor';
+import { FINE_ADJUSTMENT_MULTIPLIER, hasFineAdjustmentModifier } from '../../utils/fineAdjustment';
+import { useSliderResetResolver } from '../../context/SliderResetContext';
 
 export type SliderChangeEvent =
   | React.ChangeEvent<HTMLInputElement>
@@ -22,20 +25,6 @@ export interface SliderScale {
   toPosition(value: number): number;
 }
 
-export interface SpeedEditTarget {
-  label: string | null;
-  value: number;
-  defaultValue: number;
-  step: number;
-  minPosition: number;
-  maxPosition: number;
-  format(value: number): string;
-  toPosition(value: number): number;
-  toValue(position: number): number;
-  onChange(value: number): void;
-  onDragStateChange(state: boolean): void;
-}
-
 const LINEAR_SCALE: SliderScale = {
   fromPosition: (position) => position,
   toPosition: (value) => value,
@@ -52,17 +41,18 @@ interface SliderProps {
   onChange(event: SliderChangeEvent): void;
   onDragStateChange?(state: boolean): void;
   onPointerUp?(): void;
+  resetKey?: string;
   scale?: SliderScale;
   speedEditId?: string;
   step: number;
   value: number;
+  headerAction?: React.ReactNode;
   trackClassName?: string;
   fillOrigin?: 'min' | 'default';
   suffix?: string;
 }
 
 const DOUBLE_CLICK_THRESHOLD_MS = 150;
-export const FINE_ADJUSTMENT_MULTIPLIER = 0.2;
 const TOUCH_DRAG_THRESHOLD_PX = 10;
 const TOUCH_THUMB_HIT_RADIUS_PX = 24;
 
@@ -71,9 +61,6 @@ const getFraction = (value: number, min: number, max: number) => (max !== min ? 
 const speedEditTargets = new WeakMap<Element, RefObject<SpeedEditTarget | null>>();
 
 export const getSpeedEditTarget = (element: Element) => speedEditTargets.get(element) ?? null;
-
-export const hasFineAdjustmentModifier = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent) =>
-  'shiftKey' in event && (event.shiftKey || event.altKey);
 
 const Slider = ({
   animateValueChanges = true,
@@ -86,14 +73,18 @@ const Slider = ({
   onChange,
   onDragStateChange = () => {},
   onPointerUp,
+  resetKey,
   scale = LINEAR_SCALE,
   speedEditId,
   step = 1,
   value,
+  headerAction,
   trackClassName,
   fillOrigin = 'default',
   suffix = '',
 }: SliderProps) => {
+  const resolveReset = useSliderResetResolver();
+  const resetValue = (resolveReset && resetKey !== undefined ? resolveReset(resetKey) : undefined) ?? defaultValue;
   const { t } = useTranslation();
   const [displayValue, setDisplayValue] = useState<number>(value);
   const [isDragging, setIsDragging] = useState(false);
@@ -178,7 +169,7 @@ const Slider = ({
     : {
         label: speedEditLabel ? t(speedEditLabel) : typeof label === 'string' ? label : null,
         value: numericValue,
-        defaultValue,
+        defaultValue: resetValue,
         step,
         minPosition,
         maxPosition,
@@ -445,10 +436,10 @@ const Slider = ({
   const handleReset = () => {
     if (disabled) return;
 
-    setInputValue(String(defaultValue));
+    setInputValue(String(resetValue));
     const syntheticEvent = {
       target: {
-        value: defaultValue,
+        value: resetValue,
       },
     };
     onChange(syntheticEvent);
@@ -663,16 +654,25 @@ const Slider = ({
       className={`mb-2 group ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       ref={containerRef}
       data-speed-edit-id={speedEditId}
-      onPointerDownCapture={disabled ? undefined : claimSpeedEdit}
+      onPointerDownCapture={
+        disabled
+          ? undefined
+          : (event) => {
+              const target = event.target as HTMLElement | null;
+              if (target?.closest?.('[data-slider-action]')) return;
+              claimSpeedEdit();
+            }
+      }
     >
-      <div className="flex justify-between items-center mb-1">
-        <div
-          className={`grid ${typeof label === 'string' && !disabled ? 'cursor-pointer' : ''}`}
-          onClick={typeof label === 'string' && !disabled ? handleReset : undefined}
-          onDoubleClick={typeof label === 'string' && !disabled ? handleReset : undefined}
-          onMouseEnter={typeof label === 'string' && !disabled ? () => setIsLabelHovered(true) : undefined}
-          onMouseLeave={typeof label === 'string' && !disabled ? () => setIsLabelHovered(false) : undefined}
-        >
+      <div className="flex justify-between items-center mb-1 gap-2">
+        <div className="flex items-center gap-1 min-w-0">
+          <div
+            className={`grid ${typeof label === 'string' && !disabled ? 'cursor-pointer' : ''}`}
+            onClick={typeof label === 'string' && !disabled ? handleReset : undefined}
+            onDoubleClick={typeof label === 'string' && !disabled ? handleReset : undefined}
+            onMouseEnter={typeof label === 'string' && !disabled ? () => setIsLabelHovered(true) : undefined}
+            onMouseLeave={typeof label === 'string' && !disabled ? () => setIsLabelHovered(false) : undefined}
+          >
           <span
             aria-hidden={isLabelHovered && typeof label === 'string'}
             className={`col-start-1 row-start-1 text-sm font-medium text-text-secondary select-none transition-opacity duration-200 ease-in-out ${
@@ -691,8 +691,11 @@ const Slider = ({
               {t('ui.slider.reset')}
             </span>
           )}
+          </div>
         </div>
-        <div className="w-14 text-right shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
+          {headerAction}
+          <div className="w-14 text-right">
           {isEditing ? (
             <input
               className="w-full text-sm text-right bg-card-active border border-gray-500 rounded-sm px-1 py-0 outline-none focus:ring-1 focus:ring-blue-500 text-text-primary"
@@ -718,6 +721,7 @@ const Slider = ({
               {suffix && <span className="text-[10px] align-top inline ml-0.5">{suffix}</span>}
             </span>
           )}
+          </div>
         </div>
       </div>
 

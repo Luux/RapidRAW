@@ -11,7 +11,6 @@ import AdjustmentSectionsSubMenu from './AdjustmentSectionsSubMenu';
 import {
   ActiveTools,
   Adjustments,
-  INITIAL_ADJUSTMENTS,
   ADJUSTMENT_SECTIONS,
   getActiveTools,
   getVisibleAdjustmentSections,
@@ -20,15 +19,17 @@ import {
   toggleToolActive,
 } from '../../../utils/adjustments';
 import { useContextMenu } from '../../../context/ContextMenuContext';
-import { OPTION_SEPARATOR, Orientation } from '../../ui/AppProperties';
+import { OPTION_SEPARATOR, Orientation } from '../../../types/ui';
 import Text from '../../ui/Text';
 import { TextVariants, TextColors, TextWeights } from '../../../types/typography';
 import { useShallow } from 'zustand/react/shallow';
 import { canvasToolState, useEditorStore } from '../../../store/useEditorStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
+import { getOpenImageDefaults } from '../../../utils/developDefaults';
 import { useUIStore } from '../../../store/useUIStore';
 import { buildAutoAdjustModeOptions, useEditorActions } from '../../../hooks/useEditorActions';
 import { useWaveformControls } from '../../../hooks/useWaveformControls';
+import type { ParseKeys } from 'i18next';
 
 function AdjustmentSectionContent(props: {
   sectionName: string;
@@ -123,17 +124,19 @@ export default function Controls() {
     [setAdjustments],
   );
 
-  const handleResetAdjustments = () => {
+  const handleResetAdjustments = async () => {
+    const defaults = await getOpenImageDefaults();
     setAdjustments(
       (prev: Adjustments) => ({
         ...prev,
         ...Object.keys(ADJUSTMENT_SECTIONS)
           .flatMap((s) => ADJUSTMENT_SECTIONS[s])
           .reduce((acc: any, key: string) => {
-            acc[key] = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
+            const value = defaults[key as keyof Adjustments];
+            if (value !== undefined) acc[key] = value;
             return acc;
           }, {}),
-        activeTools: { ...INITIAL_ADJUSTMENTS.activeTools },
+        activeTools: { ...defaults.activeTools },
       }),
       t('contextMenus.editor.resetAdjustments'),
     );
@@ -191,10 +194,12 @@ export default function Controls() {
       }));
     };
 
-    const handleReset = () => {
+    const handleReset = async () => {
+      const defaults = await getOpenImageDefaults();
       const resetValues: any = {};
       for (const key of sectionKeys) {
-        resetValues[key] = JSON.parse(JSON.stringify(INITIAL_ADJUSTMENTS[key as keyof Adjustments]));
+        const value = defaults[key as keyof Adjustments];
+        if (value !== undefined) resetValues[key] = value;
       }
       setAdjustments((prev: Adjustments) => ({
         ...prev,
@@ -204,7 +209,7 @@ export default function Controls() {
     };
 
     const isPasteAllowed = copiedSectionAdjustments && copiedSectionAdjustments.section === sectionName;
-    const translatedSection = t(`editor.adjustments.sections.${sectionName}`);
+    const translatedSection = t(`editor.adjustments.sections.${sectionName}` as ParseKeys);
 
     const pasteLabel = copiedSectionAdjustments
       ? t('editor.adjustments.actions.pasteLabel', { section: translatedSection })
@@ -293,7 +298,7 @@ export default function Controls() {
       <div className="grow overflow-y-scroll p-3 flex flex-col gap-2">
         {selectedImage ? (
           visibleSections.map((sectionName: string) => {
-            const title = t(`editor.adjustments.sections.${sectionName}`);
+            const title = t(`editor.adjustments.sections.${sectionName}` as ParseKeys);
 
             return (
               <div className="shrink-0 group" key={sectionName}>
